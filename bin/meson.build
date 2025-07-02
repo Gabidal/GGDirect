@@ -26,7 +26,8 @@ TYPE = DEBUG  # Change this to RELEASE or PROFILE for different build types
 
 # Source files for the project
 sources = [
-  '../src/main.cpp'
+  '../src/main.cpp',
+  '../src/window.cpp'
 ]
 
 # SIMD and CPU-specific options

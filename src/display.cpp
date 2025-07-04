@@ -369,7 +369,7 @@ namespace display {
                                      0, 0, currentFb->getWidth() << 16, currentFb->getHeight() << 16);
             
             if (ret != 0) {
-                std::cerr << "Failed to set plane: " << strerror(errno) << std::endl;
+                std::cerr << "Failed to set plane: " << strerror(errno) << " (" << ret << ")" << std::endl;
                 return false;
             }
             
@@ -972,11 +972,10 @@ namespace display {
         strncpy(drmMode.name, mode.getName().c_str(), DRM_DISPLAY_MODE_LEN - 1);
         drmMode.name[DRM_DISPLAY_MODE_LEN - 1] = '\0';
         
-        int ret = drmModeSetCrtc(deviceFd, crtcObj->getId(), fb->getId(), 0, 0,
-                                connectorIds, 1, &drmMode);
+        int ret = drmModeSetCrtc(deviceFd, crtcObj->getId(), fb->getId(), 0, 0, connectorIds, 1, &drmMode);
         
         if (ret != 0) {
-            std::cerr << "Failed to set mode: " << strerror(errno) << std::endl;
+            std::cerr << "Failed to set mode: " << strerror(errno) << " (" << ret << ")" << std::endl;
             return false;
         }
         

@@ -20,11 +20,55 @@ namespace window {
             return;   // goto next
         }
 
+        // Validate dimensions to prevent memory exhaustion attacks and garbage data
+        const int MAX_DIMENSION = 10000;  // Maximum reasonable dimension
+        const int MIN_DIMENSION = 1;      // Minimum reasonable dimension
+        if (dimensions.x < MIN_DIMENSION || dimensions.y < MIN_DIMENSION || 
+            dimensions.x > MAX_DIMENSION || dimensions.y > MAX_DIMENSION) {
+            std::cerr << "Invalid dimensions received from GGUI client: " << 
+                         dimensions.x << "x" << dimensions.y << std::endl;
+            errorCount++;
+            return;
+        }
+
+        // Calculate total size and check for overflow
+        int64_t totalSize = static_cast<int64_t>(dimensions.x) * static_cast<int64_t>(dimensions.y);
+        const int64_t MAX_BUFFER_SIZE = 1024 * 1024;  // 1M cells maximum
+        if (totalSize <= 0 || totalSize > MAX_BUFFER_SIZE) {
+            std::cerr << "Buffer size invalid or too large: " << totalSize << " cells (max: " << MAX_BUFFER_SIZE << ")" << std::endl;
+            errorCount++;
+            return;
+        }
+
         if (dimensions != size) {
-            cellBuffer = new std::vector<types::Cell>(dimensions.x * dimensions.y);
+            // Delete the old buffer before allocating a new one
+            if (cellBuffer) {
+                delete cellBuffer;
+                cellBuffer = nullptr;
+            }
+            
+            try {
+                cellBuffer = new std::vector<types::Cell>(static_cast<size_t>(totalSize));
+                size = dimensions;  // Update the size to match the new dimensions
+                
+                std::cout << "Resized cell buffer to " << dimensions.x << "x" << dimensions.y << 
+                             " (" << totalSize << " cells)" << std::endl;
+            } catch (const std::bad_alloc& e) {
+                std::cerr << "Failed to allocate cell buffer: " << e.what() << std::endl;
+                cellBuffer = nullptr;
+                size = types::iVector2{0, 0};
+                errorCount++;
+                return;
+            }
         }
 
         // Now we'll get the buffer data from the GGUI client.
+        if (!cellBuffer || cellBuffer->empty()) {
+            std::cerr << "Cell buffer is invalid or empty" << std::endl;
+            errorCount++;
+            return;
+        }
+        
         if (!connection.Receive(cellBuffer->data(), cellBuffer->size())) {
             std::cerr << "Failed to receive buffer data from GGUI client" << std::endl;
             errorCount++;

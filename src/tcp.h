@@ -114,18 +114,26 @@ namespace tcp {
             }
             
             size_t totalBytes = count * sizeof(T);
-            ssize_t recvd = recv(handle, data, totalBytes, 0);
+            size_t bytesReceived = 0;
+            char* buffer = reinterpret_cast<char*>(data);
             
-            if (recvd < 0) {
-                // Receive failed due to error
-                return false;
-            }
-            if (recvd == 0) {
-                // Connection closed by peer
-                return false;
+            // Keep receiving until we have all the data or an error occurs
+            while (bytesReceived < totalBytes) {
+                ssize_t recvd = recv(handle, buffer + bytesReceived, totalBytes - bytesReceived, 0);
+                
+                if (recvd < 0) {
+                    // Receive failed due to error
+                    return false;
+                }
+                if (recvd == 0) {
+                    // Connection closed by peer
+                    return false;
+                }
+                
+                bytesReceived += recvd;
             }
             
-            return recvd == static_cast<ssize_t>(totalBytes);
+            return bytesReceived == totalBytes;
         }
 
         /**

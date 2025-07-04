@@ -33,6 +33,15 @@ namespace window {
 
         handle(tcp::connection&& conn) : position({}), size({}), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>()){}
 
+        ~handle() {
+            delete cellBuffer;
+        }
+
+        handle(const window::handle&) = default;
+        handle& operator=(const window::handle&) = default;
+        handle(window::handle&&) noexcept = default;
+        handle& operator=(window::handle&&) noexcept = default;
+
         void close() {
             connection.close();
         }

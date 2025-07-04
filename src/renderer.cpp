@@ -91,29 +91,41 @@ namespace renderer {
         // Start rendering thread
         std::thread renderingThread([](){
             while (!shouldExit) {
-                window::manager::handles([](std::vector<window::handle>& self){
+                bool needsPresent = false;
+                
+                window::manager::handles([&needsPresent](std::vector<window::handle>& self){
                     // First we'll need to order the handles, so that rendering order is correct, where lower z's get drawn first to be overdrawn.
                     std::sort(self.begin(), self.end(), [](const window::handle& a, const window::handle& b) {
                         return a.position.z < b.position.z;  // Sort by z position
                     });
 
-                    // Receive cell buffers
-                    for (int i = 0; i < self.size(); i++) {
+                    // Receive cell buffers and remove problematic handles
+                    for (int i = static_cast<int>(self.size()) - 1; i >= 0; i--) {
                         if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
-                            // This handle has given us way too much problems, remove it
+                            // This handle has given us way too many problems, remove it
+                            std::cerr << "Removing handle " << i << " due to excessive errors (" << 
+                                         self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << ")" << std::endl;
                             self.erase(self.begin() + i);
-                            i--;  // Decrement i to account for the removed element
+                            continue;
                         }
 
+                        // Safely poll the handle
                         self[i].poll();
                     }
 
                     // Render gotten cell buffers.
                     for (auto& handle : self) {
-                        render(&handle);
+                        if (renderHandle(&handle)) {
+                            needsPresent = true;
+                        }
                     }
 
                 });
+
+                // Present the framebuffer only once per frame if anything was rendered
+                if (needsPresent && currentFramebuffer) {
+                    display::manager::present(primaryConnector, currentFramebuffer);
+                }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));  // cap at 60fps
             }
@@ -138,15 +150,32 @@ namespace renderer {
         rendererInitialized = false;
     }
 
-    void render(const window::handle* handle) {
+    bool renderHandle(const window::handle* handle) {
         if (!rendererInitialized || !handle || !handle->cellBuffer || !currentFramebuffer) {
-            return;
+            return false;
+        }
+
+        // Additional safety checks
+        if (handle->size.x <= 0 || handle->size.y <= 0) {
+            return false;
+        }
+        
+        if (handle->cellBuffer->empty()) {
+            return false;
+        }
+
+        // Verify the buffer size matches the expected dimensions
+        size_t expectedSize = static_cast<size_t>(handle->size.x) * static_cast<size_t>(handle->size.y);
+        if (handle->cellBuffer->size() != expectedSize) {
+            std::cerr << "Buffer size mismatch: expected " << expectedSize << 
+                         " cells, got " << handle->cellBuffer->size() << std::endl;
+            return false;
         }
 
         // Clear the framebuffer region for this handle
         uint32_t* fbBuffer = static_cast<uint32_t*>(currentFramebuffer->getBuffer());
         if (!fbBuffer) {
-            return;
+            return false;
         }
 
         // Calculate cell dimensions based on font and zoom
@@ -165,12 +194,17 @@ namespace renderer {
         int maxX = std::min(handle->position.x + windowWidth, static_cast<int>(currentFramebuffer->getWidth()));
         int maxY = std::min(handle->position.y + windowHeight, static_cast<int>(currentFramebuffer->getHeight()));
         
+        bool didRender = false;
+        
         // Render each cell
         for (int cellY = 0; cellY < handle->size.y; cellY++) {
             for (int cellX = 0; cellX < handle->size.x; cellX++) {
                 int cellIndex = cellY * handle->size.x + cellX;
                 
-                if (static_cast<size_t>(cellIndex) >= handle->cellBuffer->size()) {
+                // Bounds check for cell buffer access
+                if (cellIndex < 0 || static_cast<size_t>(cellIndex) >= handle->cellBuffer->size()) {
+                    std::cerr << "Cell index out of bounds: " << cellIndex << 
+                                 " (buffer size: " << handle->cellBuffer->size() << ")" << std::endl;
                     continue;
                 }
                 
@@ -191,11 +225,16 @@ namespace renderer {
                 // Copy cell pixels to framebuffer
                 renderCellToFramebuffer(fbBuffer, currentFramebuffer->getWidth(), currentFramebuffer->getHeight(),
                                       pixelX, pixelY, cellData);
+                didRender = true;
             }
         }
         
-        // Present the framebuffer
-        display::manager::present(primaryConnector, currentFramebuffer);
+        return didRender;
+    }
+    
+    // Legacy function for backward compatibility
+    void render(const window::handle* handle) {
+        renderHandle(handle);
     }
     
     void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight,

@@ -337,8 +337,8 @@ namespace font {
         std::shared_ptr<font> defaultFont;
         std::unordered_map<std::string, std::shared_ptr<font>> fontRegistry;
         std::string configurableFontName = "default";
-        int defaultCellWidth = 8;
-        int defaultCellHeight = 16;
+        int defaultCellWidth = 6;
+        int defaultCellHeight = 12;
 
         std::vector<std::string> getSystemFontPaths() {
             std::vector<std::string> paths;

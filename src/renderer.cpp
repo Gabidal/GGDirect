@@ -167,8 +167,7 @@ namespace renderer {
         // Verify the buffer size matches the expected dimensions
         size_t expectedSize = static_cast<size_t>(handle->size.x) * static_cast<size_t>(handle->size.y);
         if (handle->cellBuffer->size() != expectedSize) {
-            std::cerr << "Buffer size mismatch: expected " << expectedSize << 
-                         " cells, got " << handle->cellBuffer->size() << std::endl;
+            std::cerr << "Buffer size mismatch: expected " << expectedSize << " cells, got " << handle->cellBuffer->size() << std::endl;
             return false;
         }
 
@@ -203,8 +202,7 @@ namespace renderer {
                 
                 // Bounds check for cell buffer access
                 if (cellIndex < 0 || static_cast<size_t>(cellIndex) >= handle->cellBuffer->size()) {
-                    std::cerr << "Cell index out of bounds: " << cellIndex << 
-                                 " (buffer size: " << handle->cellBuffer->size() << ")" << std::endl;
+                    std::cerr << "Cell index out of bounds: " << cellIndex << " (buffer size: " << handle->cellBuffer->size() << ")" << std::endl;
                     continue;
                 }
                 
@@ -223,8 +221,7 @@ namespace renderer {
                 font::cellRenderData cellData = font::manager::renderCell(cell, baseCellWidth, baseCellHeight, handle->zoom);
                 
                 // Copy cell pixels to framebuffer
-                renderCellToFramebuffer(fbBuffer, currentFramebuffer->getWidth(), currentFramebuffer->getHeight(),
-                                      pixelX, pixelY, cellData);
+                renderCellToFramebuffer(fbBuffer, currentFramebuffer->getPitch()/(sizeof(types::RGB) + sizeof(char)), currentFramebuffer->getHeight(), pixelX, pixelY, cellData);
                 didRender = true;
             }
         }

@@ -17,7 +17,61 @@ extern "C" {
 #include <libdrm/drm.h>
 }
 
+#define MAX_DRM_DEVICES 64
+
 namespace display {
+
+    //===============================================================================
+    // DRM Device Discovery
+    //===============================================================================
+
+    /**
+     * @brief Get the path of a suitable DRM device
+     * 
+     * This function finds a suitable DRM device and returns its path.
+     * If no device is found, it returns an empty string.
+     * 
+     * @return Path to the DRM device, or empty string if none found
+     */
+    static std::string findDrmDevicePath() {
+        drmDevicePtr devices[MAX_DRM_DEVICES] = { nullptr };
+        int num_devices;
+        std::string devicePath;
+
+        num_devices = drmGetDevices2(0, devices, MAX_DRM_DEVICES);
+        if (num_devices < 0) {
+            std::cerr << "drmGetDevices2 failed: " << strerror(-num_devices) << std::endl;
+            return "";
+        }
+
+        for (int i = 0; i < num_devices; i++) {
+            drmDevicePtr device = devices[i];
+
+            if (!(device->available_nodes & (1 << DRM_NODE_PRIMARY))) {
+                continue;
+            }
+
+            // Try to open the primary node to test if it's KMS-capable
+            int fd = open(device->nodes[DRM_NODE_PRIMARY], O_RDWR | O_CLOEXEC);
+            if (fd < 0) {
+                continue;
+            }
+
+            // Check if this device supports KMS
+            drmModeRes* resources = drmModeGetResources(fd);
+            if (resources) {
+                devicePath = device->nodes[DRM_NODE_PRIMARY];
+                drmModeFreeResources(resources);
+                close(fd);
+                break;
+            }
+
+            close(fd);
+        }
+
+        drmFreeDevices(devices, num_devices);
+        return devicePath;
+    }
 
     //===============================================================================
     // Mode Implementation
@@ -667,6 +721,8 @@ namespace display {
         other.deviceFd = -1;
         other.initialized = false;
         other.atomicReq = nullptr;
+
+
     }
 
     device& device::operator=(device&& other) noexcept {
@@ -1090,9 +1146,39 @@ namespace display {
     }
 
     bool device::openDevice() {
+        // If no device path is specified, try to find one dynamically
+        if (devicePath.empty()) {
+            std::cout << "No DRM device path specified, attempting dynamic discovery..." << std::endl;
+            devicePath = findDrmDevicePath();
+            if (devicePath.empty()) {
+                std::cerr << "Failed to find any suitable DRM device" << std::endl;
+                
+                // Enable headless mode for development
+                std::cout << "No graphics hardware detected. Enabling headless mode for development." << std::endl;
+                std::cout << "Note: This mode is for development/testing only and won't display anything." << std::endl;
+                
+                deviceFd = -2;  // Special value to indicate headless mode
+                return true;
+            }
+        }
+
         deviceFd = open(devicePath.c_str(), O_RDWR | O_CLOEXEC);
         if (deviceFd < 0) {
             std::cerr << "Failed to open DRM device " << devicePath << ": " << strerror(errno) << std::endl;
+            
+            // If the specified path failed, try dynamic discovery as fallback
+            if (!devicePath.empty()) {
+                std::cout << "Attempting dynamic device discovery as fallback..." << std::endl;
+                std::string fallbackPath = findDrmDevicePath();
+                if (!fallbackPath.empty() && fallbackPath != devicePath) {
+                    devicePath = fallbackPath;
+                    deviceFd = open(devicePath.c_str(), O_RDWR | O_CLOEXEC);
+                    if (deviceFd >= 0) {
+                        std::cout << "Successfully opened fallback DRM device: " << devicePath << std::endl;
+                        return true;
+                    }
+                }
+            }
             
             // Check if we're in a virtual environment without real graphics hardware
             if (errno == ENODEV) {
@@ -1107,6 +1193,7 @@ namespace display {
             return false;
         }
         
+        std::cout << "Successfully opened DRM device: " << devicePath << std::endl;
         return true;
     }
 

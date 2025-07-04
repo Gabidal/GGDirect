@@ -372,7 +372,7 @@ namespace display {
      */
     class device {
     public:
-        device(const std::string& devicePath = "/dev/dri/card0");
+        device(const std::string& devicePath);
         ~device();
 
         // Disable copy, enable move
@@ -470,7 +470,7 @@ namespace display {
      */
     namespace manager {
         // Initialization
-        bool initialize(const std::string& devicePath = "/dev/dri/card0");
+        bool initialize(const std::string& devicePath = "");
         void cleanup();
 
         // Display management

@@ -27,7 +27,10 @@ TYPE = DEBUG  # Change this to RELEASE or PROFILE for different build types
 # Source files for the project
 sources = [
   '../src/main.cpp',
-  '../src/window.cpp'
+  '../src/window.cpp',
+  '../src/display.cpp',
+  '../src/renderer.cpp',
+  '../src/font.cpp'
 ]
 
 # SIMD and CPU-specific options
@@ -98,10 +101,18 @@ if TYPE == DEBUG or TYPE == PROFILE
   endif
 endif
 
+# Dependencies
+drm_dep = dependency('libdrm', required: true)
+thread_dep = dependency('threads', required: true)
+freetype_dep = dependency('freetype2', required: true)
+
+dependencies = [drm_dep, thread_dep, freetype_dep]
+
 # Define the executable to be built
 executable(
   'GGDirect',                      # Output executable name
   sources,                     # Source files
+  dependencies: dependencies,  # External dependencies
   install : true,               # Install the executable after building
   cpp_args: cpp_args,          # C++ compiler flags
   link_args: link_args         # Linker flags

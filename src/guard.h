@@ -35,8 +35,10 @@ namespace atomic{
             std::lock_guard<std::mutex> lock(shared); // Automatically manages mutex locking and unlocking
             try {
                 job(*data);
+            } catch (const std::exception& e) {
+                perror(e.what());
             } catch (...) {
-                perror("Failed to execute the function!");
+                perror("Unknown exception occurred in job execution!");
             }
         }
 

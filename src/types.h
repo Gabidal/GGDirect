@@ -1,6 +1,8 @@
 #ifndef _TYPES_H_
 #define _TYPES_H_
 
+#include <cstdint>
+
 namespace types {
 
     class iVector2 {
@@ -49,6 +51,16 @@ namespace types {
         }
     };
 
+    struct RGB {
+        uint8_t r, g, b;
+    };
+
+    struct Cell {
+        char utf[4];    // Not null terminated since we already know it is 4 char long at max, leftovers are nulled out.
+
+        RGB textColor;
+        RGB backgroundColor;
+    };
 }
 
 #endif

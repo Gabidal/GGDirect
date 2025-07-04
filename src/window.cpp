@@ -6,6 +6,35 @@
 #include <iostream>
 
 namespace window {
+    void handle::poll() {
+        // GGUI client will always first give us the buffer dimensions first as a iVector2.
+        types::iVector2 dimensions;
+        if (!connection.Receive(&dimensions, 1)) {
+            std::cerr << "Failed to receive dimensions from GGUI client" << std::endl;
+            errorCount++;
+            return;  // Skip to the next         
+        }
+
+        if (dimensions == types::iVector2{0, 0}) {
+            // This a STAIN::CLEAN state, nothing changed from the previous buffer.
+            return;   // goto next
+        }
+
+        if (dimensions != size) {
+            cellBuffer = new std::vector<types::Cell>(dimensions.x * dimensions.y);
+        }
+
+        // Now we'll get the buffer data from the GGUI client.
+        if (!connection.Receive(cellBuffer->data(), cellBuffer->size())) {
+            std::cerr << "Failed to receive buffer data from GGUI client" << std::endl;
+            errorCount++;
+            return;  // Skip to the next handle
+        }
+
+        // Set the errorCount to zero if everything worked.
+        errorCount = 0;
+    }
+
     namespace manager {
         // Define the global variables
         atomic::guard<std::vector<handle>> handles;

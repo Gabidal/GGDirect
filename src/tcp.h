@@ -11,6 +11,52 @@
 #include <stdexcept>
 #include <string>
 
+namespace packet {
+    enum class type {
+        UNKNOWN,
+        DRAW_BUFFER,    // For sending/receiving cells
+        INPUT,          // Fer sending/receiving input data
+        NOTIFY,         // Contains an notify flag sending like empty buffers, for optimized polling.
+        RESIZE,         // For sending/receiving GGUI resize
+    };
+
+    enum class notify {
+        UNKNOWN         = 0 << 0,
+        EMPTY_BUFFER    = 1 << 0,
+    };
+
+    enum class controlKey {
+        UNKNOWN         = 0 << 0,
+        SHIFT           = 1 << 0,
+        CTRL            = 1 << 1,
+        SUPER           = 1 << 2,
+        ALT             = 1 << 3,
+        ALTGR           = 1 << 4,
+        FN              = 1 << 5,
+        PRESSED_DOWN    = 1 << 6,   // Always on/off to indicate if the key is being pressed down or not.
+    };
+
+    enum class additionalKey {
+        UNKNOWN,
+        F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+        ARROW_UP, ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT,
+        HOME, END, PAGE_UP, PAGE_DOWN,
+        INSERT, DELETE,
+        LEFT_CLICK, MIDDLE_CLICK, RIGHT_CLICK, SCROLL_UP, SCROLL_DOWN,
+    };
+
+    struct input {
+        types::iVector2 mouse;      // Mouse position in the terminal   
+        controlKey modifiers;       // Control keys pressed
+        additionalKey additional;   // Additional keys pressed, which are not declared in ASCII
+        unsigned char key;          // ASCII key pressed, if any
+    };
+
+    struct resize {
+        types::iVector2 size;
+    };
+}
+
 namespace tcp {
     /**
      * @brief Represents a TCP connection for sending and receiving data.
@@ -105,7 +151,7 @@ namespace tcp {
          * @throws std::runtime_error if the socket is invalid or closed
          */
         template<typename T>
-        bool Receive(T* data, size_t count) {
+        bool Receive(T* data, size_t count = 1) {
             if (handle < 0) {
                 throw std::runtime_error("Cannot receive on closed socket");
             }

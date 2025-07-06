@@ -86,7 +86,6 @@ namespace renderer {
         }
         
         rendererInitialized = true;
-        std::cout << "Renderer initialized successfully" << std::endl;
         
         // Start rendering thread
         std::thread renderingThread([](){

@@ -31,7 +31,7 @@ namespace window {
 
         std::vector<types::Cell>* cellBuffer;
 
-        handle(tcp::connection&& conn) : position({}), size({}), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>()){}
+        handle(tcp::connection&& conn) : position({}), size({10, 10}), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>(size.x*size.y)){}
 
         ~handle() {
             delete cellBuffer;

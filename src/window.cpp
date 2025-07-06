@@ -1,4 +1,5 @@
 #include "window.h"
+#include "input.h"
 #include <cstdio>
 #include <cstdint>
 #include <thread>
@@ -59,6 +60,9 @@ namespace window {
         atomic::guard<std::vector<handle>> handles;
         atomic::guard<tcp::listener> listener;
         
+        // Focus management for input system
+        static handle* currentFocusedHandle = nullptr;
+        
         const char* handshakeInitializedFileName = "/tmp/GGDirect.gateway";  // This file will contain the port this manager is listening at
 
         // Sets up the secondary thread which is responsible for the handshakes
@@ -110,6 +114,12 @@ namespace window {
                                 // Create a new handle for this connection
                                 handles([&gguiConnection](std::vector<handle>& self){
                                     self.emplace_back(std::move(gguiConnection));
+                                    
+                                    // Set the first handle as focused by default
+                                    if (self.size() == 1) {
+                                        setFocusedHandle(&self[0]);
+                                        std::cout << "Set first handle as focused for input." << std::endl;
+                                    }
                                 });
                             });
                         } catch (const std::exception& e) {
@@ -135,6 +145,33 @@ namespace window {
                     h.close(); // Close each connection
                 }
             });
+        }
+        
+        // Focus management functions
+        void setFocusedHandle(handle* focusedHandle) {
+            currentFocusedHandle = focusedHandle;
+            // Update the input system's focused handle
+            input::manager::setFocusedHandle(static_cast<void*>(focusedHandle));
+        }
+        
+        handle* getFocusedHandle() {
+            return currentFocusedHandle;
+        }
+        
+        void setFocusedHandleByIndex(size_t index) {
+            handles([index](std::vector<handle>& self) {
+                if (index < self.size()) {
+                    setFocusedHandle(&self[index]);
+                }
+            });
+        }
+        
+        size_t getActiveHandleCount() {
+            size_t count = 0;
+            handles([&count](std::vector<handle>& self) {
+                count = self.size();
+            });
+            return count;
         }
     }
 }

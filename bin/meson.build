@@ -31,7 +31,8 @@ sources = [
   '../src/display.cpp',
   '../src/renderer.cpp',
   '../src/font.cpp',
-  '../src/system.cpp'
+  '../src/system.cpp',
+  '../src/input.cpp'
 ]
 
 # SIMD and CPU-specific options

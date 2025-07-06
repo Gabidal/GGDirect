@@ -58,8 +58,13 @@ namespace window {
         extern atomic::guard<tcp::listener> listener;
 
         extern void init();
-
         extern void close();
+        
+        // Focus management for input system
+        extern void setFocusedHandle(handle* focusedHandle);
+        extern handle* getFocusedHandle();
+        extern void setFocusedHandleByIndex(size_t index);
+        extern size_t getActiveHandleCount();
     };
 }
 

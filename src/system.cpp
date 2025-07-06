@@ -1,6 +1,7 @@
 #include "system.h"
 #include "renderer.h"
 #include "window.h"
+#include "input.h"
 
 #include <signal.h>
 #include <initializer_list>
@@ -41,6 +42,10 @@ namespace DRM {
                 window::manager::init();
                 std::cout << "Window manager initialized successfully." << std::endl;
                 
+                // Initialize the input system
+                input::init();
+                std::cout << "Input system initialized successfully." << std::endl;
+                
                 // Initialize the renderer
                 renderer::init();
                 std::cout << "Renderer initialized successfully." << std::endl;
@@ -58,6 +63,9 @@ namespace DRM {
             
             // This is for when we start using conditional variables and mutex instead of while true loops on other threads.
             // We may need to notify other threads to wake up and check for shutdown conditions.
+            
+            // Clean up input system
+            input::exit();
             
             renderer::exit();
             window::manager::close();

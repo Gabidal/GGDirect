@@ -158,6 +158,11 @@ namespace window {
                       << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
         }
 
+        // Debug: Show current buffer state
+        std::cout << "Poll: Buffer size=" << cellBuffer->size() 
+                  << ", Required=" << requiredSize 
+                  << ", Dimensions=" << dimensionsInCells.x << "x" << dimensionsInCells.y << std::endl;
+
         // Now we'll get the buffer data from the GGUI client.
         if (!cellBuffer || cellBuffer->empty()) {
             std::cerr << "Cell buffer is invalid or empty" << std::endl;
@@ -262,12 +267,15 @@ namespace window {
                                 }
 
                                 // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
-                                types::rectangle windowRectangle = window::positionToCoordinates(position::FULLSCREEN);
+                                types::rectangle windowRectangle = positionToCellCoordinates(position::FULLSCREEN, getPrimaryDisplayId());
 
                                 types::iVector2 dimensionsInCells = {
-                                    windowRectangle.size.x / font::manager::getDefaultCellWidth(),
-                                    windowRectangle.size.y / font::manager::getDefaultCellHeight()
+                                    windowRectangle.size.x,
+                                    windowRectangle.size.y
                                 };
+
+                                std::cout << "Sending initial dimensions to GGUI client: " 
+                                          << dimensionsInCells.x << "x" << dimensionsInCells.y << " cells" << std::endl;
 
                                 packet::type header = packet::type::RESIZE;
 
@@ -290,6 +298,10 @@ namespace window {
                                     // Set the display ID for the new handle to the primary display
                                     auto& newHandle = self.back();
                                     newHandle.setDisplayId(getPrimaryDisplayId());
+                                    
+                                    // Verify that the handle has the same dimensions as what we sent
+                                    types::rectangle testRect = newHandle.getCellCoordinates();
+                                    std::cout << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
                                     
                                     // Set the first handle as focused by default
                                     if (self.size() == 1) {

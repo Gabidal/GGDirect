@@ -161,12 +161,18 @@ namespace renderer {
         // Get pixel coordinates for rendering position
         types::rectangle windowPixelRect = handle->getPixelCoordinates();
 
+        std::cout << "Rendering handle: Cell rect=" << windowCellRect.size.x << "x" << windowCellRect.size.y 
+                  << ", Pixel rect=" << windowPixelRect.size.x << "x" << windowPixelRect.size.y 
+                  << ", Buffer size=" << handle->cellBuffer->size() << std::endl;
+
         // Additional safety checks
         if (windowCellRect.size.x <= 0 || windowCellRect.size.y <= 0) {
+            std::cerr << "Invalid cell rectangle size: " << windowCellRect.size.x << "x" << windowCellRect.size.y << std::endl;
             return false;
         }
         
         if (handle->cellBuffer->empty()) {
+            std::cerr << "Cell buffer is empty" << std::endl;
             return false;
         }
 
@@ -195,15 +201,25 @@ namespace renderer {
         int cellWidth = static_cast<int>(baseCellWidth * handle->zoom);
         int cellHeight = static_cast<int>(baseCellHeight * handle->zoom);
         
+        std::cout << "Cell dimensions: " << cellWidth << "x" << cellHeight 
+                  << " (base: " << baseCellWidth << "x" << baseCellHeight << ", zoom: " << handle->zoom << ")" << std::endl;
+        
         // Calculate total window dimensions in pixels
         int windowWidth = windowCellRect.size.x * cellWidth;
         int windowHeight = windowCellRect.size.y * cellHeight;
+        
+        std::cout << "Window dimensions: " << windowWidth << "x" << windowHeight 
+                  << " (from " << windowCellRect.size.x << "x" << windowCellRect.size.y << " cells)" << std::endl;
         
         // Ensure we don't exceed framebuffer boundaries
         int maxX = std::min(windowPixelRect.position.x + windowWidth, static_cast<int>(currentFramebuffer->getWidth()));
         int maxY = std::min(windowPixelRect.position.y + windowHeight, static_cast<int>(currentFramebuffer->getHeight()));
         
+        std::cout << "Framebuffer bounds: " << currentFramebuffer->getWidth() << "x" << currentFramebuffer->getHeight() 
+                  << ", Window bounds: " << maxX << "x" << maxY << std::endl;
+        
         bool didRender = false;
+        int renderedCells = 0;
         
         // Render each cell using cell coordinates for iteration
         for (int cellY = 0; cellY < windowCellRect.size.y; cellY++) {
@@ -231,10 +247,13 @@ namespace renderer {
                 font::cellRenderData cellData = font::manager::renderCell(cell, baseCellWidth, baseCellHeight, handle->zoom);
                 
                 // Copy cell pixels to framebuffer
-                renderCellToFramebuffer(fbBuffer, currentFramebuffer->getPitch()/(sizeof(types::RGB) + sizeof(char)), currentFramebuffer->getHeight(), pixelX, pixelY, cellData);
+                renderCellToFramebuffer(fbBuffer, currentFramebuffer->getPitch() / sizeof(uint32_t), currentFramebuffer->getHeight(), pixelX, pixelY, cellData);
                 didRender = true;
+                renderedCells++;
             }
         }
+        
+        std::cout << "Rendered " << renderedCells << " cells out of " << handle->cellBuffer->size() << std::endl;
         
         return didRender;
     }

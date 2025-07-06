@@ -1,4 +1,6 @@
 #include "font.h"
+#include "logger.h"
+
 #include <iostream>
 #include <fstream>
 #include <algorithm>
@@ -120,7 +122,7 @@ namespace font {
         FT_Error error = FT_Init_FreeType(library);
         
         if (error) {
-            std::cerr << "Could not initialize FreeType library: " << error << std::endl;
+            LOG_ERROR() << "Could not initialize FreeType library: " << error << std::endl;
             return false;
         }
         
@@ -150,17 +152,17 @@ namespace font {
         FT_Error error = FT_New_Face(library, fontPath.c_str(), 0, face);
         
         if (error == FT_Err_Unknown_File_Format) {
-            std::cerr << "Font file format not supported: " << fontPath << std::endl;
+            LOG_ERROR() << "Font file format not supported: " << fontPath << std::endl;
             return false;
         } else if (error) {
-            std::cerr << "Could not load font file: " << fontPath << " Error: " << error << std::endl;
+            LOG_ERROR() << "Could not load font file: " << fontPath << " Error: " << error << std::endl;
             return false;
         }
         
         // Set font size
         error = FT_Set_Pixel_Sizes(*face, 0, fontSize);
         if (error) {
-            std::cerr << "Could not set font size: " << error << std::endl;
+            LOG_ERROR() << "Could not set font size: " << error << std::endl;
             return false;
         }
         
@@ -207,14 +209,14 @@ namespace font {
         
         FT_Error error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_DEFAULT);
         if (error) {
-            std::cerr << "Could not load glyph for codepoint: " << codepoint << std::endl;
+            LOG_ERROR() << "Could not load glyph for codepoint: " << codepoint << std::endl;
             return false;
         }
         
         // Render the glyph to a bitmap
         error = FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL);
         if (error) {
-            std::cerr << "Could not render glyph for codepoint: " << codepoint << std::endl;
+            LOG_ERROR() << "Could not render glyph for codepoint: " << codepoint << std::endl;
             return false;
         }
         
@@ -425,25 +427,25 @@ namespace font {
             }
             
             if (fontPath.empty()) {
-                std::cerr << "No suitable font found on system" << std::endl;
+                LOG_ERROR() << "No suitable font found on system" << std::endl;
                 return false;
             }
             
             try {
                 defaultFont = std::make_shared<font>(fontPath, defaultFontSize);
                 if (!defaultFont->isLoaded()) {
-                    std::cerr << "Failed to load default font: " << fontPath << std::endl;
+                    LOG_ERROR() << "Failed to load default font: " << fontPath << std::endl;
                     return false;
                 }
                 
                 // Register as default font
                 fontRegistry["default"] = defaultFont;
                 
-                std::cout << "Font system initialized with: " << fontPath << std::endl;
+                LOG_INFO() << "Font system initialized with: " << fontPath << std::endl;
                 return true;
                 
             } catch (const std::exception& e) {
-                std::cerr << "Error initializing font system: " << e.what() << std::endl;
+                LOG_ERROR() << "Error initializing font system: " << e.what() << std::endl;
                 return false;
             }
         }
@@ -477,7 +479,7 @@ namespace font {
                 return true;
                 
             } catch (const std::exception& e) {
-                std::cerr << "Error setting default font: " << e.what() << std::endl;
+                LOG_ERROR() << "Error setting default font: " << e.what() << std::endl;
                 return false;
             }
         }
@@ -493,7 +495,7 @@ namespace font {
                 return true;
                 
             } catch (const std::exception& e) {
-                std::cerr << "Error adding font: " << e.what() << std::endl;
+                LOG_ERROR() << "Error adding font: " << e.what() << std::endl;
                 return false;
             }
         }

@@ -1,6 +1,7 @@
 #include "input.h"
 #include "window.h"
 #include "system.h"
+#include "logger.h"
 
 #include <iostream>
 #include <fcntl.h>
@@ -32,13 +33,13 @@ namespace input {
 
     bool KeyboardHandler::initialize(const DeviceInfo& deviceInfo) {
         currentModifiers = packet::controlKey::UNKNOWN;
-        std::cout << "Initialized keyboard handler for: " << deviceInfo.name << std::endl;
+        LOG_INFO() << "Initialized keyboard handler for: " << deviceInfo.name << std::endl;
         return true;
     }
 
     void KeyboardHandler::cleanup() {
         currentModifiers = packet::controlKey::UNKNOWN;
-        std::cout << "Cleaned up keyboard handler." << std::endl;
+        LOG_INFO() << "Cleaned up keyboard handler." << std::endl;
     }
 
     bool KeyboardHandler::processEvent(const RawEvent& rawEvent, packet::input& processedEvent) {
@@ -177,14 +178,14 @@ namespace input {
     bool MouseHandler::initialize(const DeviceInfo& deviceInfo) {
         currentPosition = types::iVector2(0, 0);
         std::memset(buttonStates, 0, sizeof(buttonStates));
-        std::cout << "Initialized mouse handler for: " << deviceInfo.name << std::endl;
+        LOG_INFO() << "Initialized mouse handler for: " << deviceInfo.name << std::endl;
         return true;
     }
 
     void MouseHandler::cleanup() {
         currentPosition = types::iVector2(0, 0);
         std::memset(buttonStates, 0, sizeof(buttonStates));
-        std::cout << "Cleaned up mouse handler." << std::endl;
+        LOG_INFO() << "Cleaned up mouse handler." << std::endl;
     }
 
     bool MouseHandler::processEvent(const RawEvent& rawEvent, packet::input& processedEvent) {
@@ -257,14 +258,14 @@ namespace input {
     bool TouchpadHandler::initialize(const DeviceInfo& deviceInfo) {
         currentPosition = types::iVector2(0, 0);
         isTouching = false;
-        std::cout << "Initialized touchpad handler for: " << deviceInfo.name << std::endl;
+        LOG_INFO() << "Initialized touchpad handler for: " << deviceInfo.name << std::endl;
         return true;
     }
 
     void TouchpadHandler::cleanup() {
         currentPosition = types::iVector2(0, 0);
         isTouching = false;
-        std::cout << "Cleaned up touchpad handler." << std::endl;
+        LOG_INFO() << "Cleaned up touchpad handler." << std::endl;
     }
 
     bool TouchpadHandler::processEvent(const RawEvent& rawEvent, packet::input& processedEvent) {
@@ -323,7 +324,7 @@ namespace input {
             }
         }
         
-        std::cout << "Scanned " << devices.size() << " input devices." << std::endl;
+        logger::info("Scanned " + std::to_string(devices.size()) + " input devices.");
         return !devices.empty();
     }
 
@@ -346,14 +347,14 @@ namespace input {
         // Open the device
         deviceInfo->fd = open(devicePath.c_str(), O_RDONLY | O_NONBLOCK);
         if (deviceInfo->fd < 0) {
-            std::cerr << "Failed to open device: " << devicePath << std::endl;
+            LOG_ERROR() << "Failed to open device: " << devicePath << std::endl;
             return false;
         }
         
         deviceInfo->isActive = true;
         devices.push_back(std::move(deviceInfo));
         
-        std::cout << "Added input device: " << devicePath << std::endl;
+        LOG_VERBOSE() << "Added input device: " << devicePath << std::endl;
         return true;
     }
 
@@ -368,7 +369,7 @@ namespace input {
                 close((*it)->fd);
             }
             devices.erase(it);
-            std::cout << "Removed input device: " << devicePath << std::endl;
+            LOG_INFO() << "Removed input device: " << devicePath << std::endl;
             return true;
         }
         
@@ -427,7 +428,7 @@ namespace input {
 
     void DeviceManager::start() {
         isRunning = true;
-        std::cout << "Input device manager started." << std::endl;
+        LOG_INFO() << "Input device manager started." << std::endl;
     }
 
     void DeviceManager::stop() {
@@ -442,7 +443,7 @@ namespace input {
             }
         }
         
-        std::cout << "Input device manager stopped." << std::endl;
+        LOG_INFO() << "Input device manager stopped." << std::endl;
     }
 
     // ============================================================================
@@ -470,7 +471,7 @@ namespace input {
         
         isRunning = true;
         processingThread = std::thread(&EventProcessor::pollDevices, this);
-        std::cout << "Input event processor started." << std::endl;
+        LOG_INFO() << "Input event processor started." << std::endl;
     }
 
     void EventProcessor::stop() {
@@ -484,7 +485,7 @@ namespace input {
             processingThread.join();
         }
         
-        std::cout << "Input event processor stopped." << std::endl;
+        LOG_INFO() << "Input event processor stopped." << std::endl;
     }
 
     void EventProcessor::pollDevices() {
@@ -568,7 +569,7 @@ namespace input {
         void* focusedHandle = nullptr;
 
         void init() {
-            std::cout << "Initializing input system..." << std::endl;
+            logger::info("Initializing input system...");
             
             // Initialize device manager
             deviceManager([](DeviceManager& dm) {
@@ -595,11 +596,11 @@ namespace input {
                 ep.start();
             });
             
-            std::cout << "Input system initialized successfully." << std::endl;
+            LOG_INFO() << "Input system initialized successfully." << std::endl;
         }
 
         void exit() {
-            std::cout << "Shutting down input system..." << std::endl;
+            LOG_INFO() << "Shutting down input system..." << std::endl;
             
             eventProcessor([](EventProcessor& ep) {
                 ep.stop();
@@ -609,7 +610,7 @@ namespace input {
                 dm.stop();
             });
             
-            std::cout << "Input system shutdown complete." << std::endl;
+            LOG_INFO() << "Input system shutdown complete." << std::endl;
         }
 
         void poll() {
@@ -669,12 +670,12 @@ namespace input {
                     packet::type packetType = packet::type::INPUT;
                     
                     if (!handle->connection.Send(&packetType, 1)) {
-                        std::cerr << "Failed to send packet type to focused handle" << std::endl;
+                        LOG_ERROR() << "Failed to send packet type to focused handle" << std::endl;
                         return;
                     }
                     
                     if (!handle->connection.Send(&inputEvent, 1)) {
-                        std::cerr << "Failed to send input event to focused handle" << std::endl;
+                        LOG_ERROR() << "Failed to send input event to focused handle" << std::endl;
                         return;
                     }
                 }
@@ -693,7 +694,7 @@ namespace input {
             
             DIR* dir = opendir(inputDir);
             if (!dir) {
-                std::cerr << "Failed to open input directory: " << inputDir << std::endl;
+                LOG_ERROR() << "Failed to open input directory: " << inputDir << std::endl;
                 return devices;
             }
             

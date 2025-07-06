@@ -1,4 +1,5 @@
 #include "system.h"
+#include "logger.h"
 #include "renderer.h"
 #include "window.h"
 #include "input.h"
@@ -12,7 +13,7 @@ namespace DRM {
     namespace system {
 
         void init() {
-            std::cout << "Starting GGDirect window manager..." << std::endl;
+            logger::info("Starting GGDirect window manager...");
             
             try {
                 struct sigaction normal_exit = {};
@@ -35,31 +36,31 @@ namespace DRM {
                 }
 
                 if (atexit([](){cleanup();})){
-                    std::cerr << "Failed to register exit handler." << std::endl;
+                    logger::error("Failed to register exit handler.");
                 }
                 
                 // Initialize the window manager
                 window::manager::init();
-                std::cout << "Window manager initialized successfully." << std::endl;
+                logger::info("Window manager initialized successfully.");
                 
                 // Initialize the input system
                 input::init();
-                std::cout << "Input system initialized successfully." << std::endl;
+                logger::info("Input system initialized successfully.");
                 
                 // Initialize the renderer
                 renderer::init();
-                std::cout << "Renderer initialized successfully." << std::endl;
+                logger::info("Renderer initialized successfully.");
                 
-                std::cout << "GGDirect is ready. Press Ctrl+C to exit." << std::endl;
+                logger::info("GGDirect is ready. Press Ctrl+C to exit.");
 
             } catch (const std::exception& e) {
-                std::cerr << "Error: " << e.what() << std::endl;
+                logger::error(std::string("Initialization failed: ") + e.what());
             }
         }
 
         void cleanup() {
             // Perform any necessary cleanup operations here
-            std::cout << "Cleaning up system resources..." << std::endl;
+            LOG_VERBOSE() << "Cleaning up system resources..." << std::endl;
             
             // This is for when we start using conditional variables and mutex instead of while true loops on other threads.
             // We may need to notify other threads to wake up and check for shutdown conditions.
@@ -70,9 +71,9 @@ namespace DRM {
             renderer::exit();
             window::manager::close();
 
-            std::cout << "System cleanup completed." << std::endl;
+            LOG_VERBOSE() << "System cleanup completed." << std::endl;
 
-            std::cout << "Shutdown..." << std::endl;
+            logger::info("Shutdown complete.");
         }
 
         uint64_t getCurrentTimeMillis() {

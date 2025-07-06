@@ -1,4 +1,5 @@
 #include "display.h"
+#include "logger.h"
 #include <iostream>
 #include <algorithm>
 #include <cstring>
@@ -40,7 +41,7 @@ namespace display {
 
         num_devices = drmGetDevices2(0, devices, MAX_DRM_DEVICES);
         if (num_devices < 0) {
-            std::cerr << "drmGetDevices2 failed: " << strerror(-num_devices) << std::endl;
+            LOG_ERROR() << "drmGetDevices2 failed: " << strerror(-num_devices) << std::endl;
             return "";
         }
 
@@ -159,7 +160,7 @@ namespace display {
         
         // Check if we're in headless mode
         if (drmFd == -2) {
-            std::cout << "Creating software framebuffer for headless mode..." << std::endl;
+            LOG_INFO() << "Creating software framebuffer for headless mode..." << std::endl;
             
             // Allocate software buffer for headless mode
             info.pitch = info.width * (info.bpp / 8);
@@ -167,7 +168,7 @@ namespace display {
             
             buffer = malloc(info.size);
             if (!buffer) {
-                std::cerr << "Failed to allocate software framebuffer: " << strerror(errno) << std::endl;
+                LOG_ERROR() << "Failed to allocate software framebuffer: " << strerror(errno) << std::endl;
                 return false;
             }
             
@@ -178,8 +179,7 @@ namespace display {
             framebufferId = 1;
             mapped = true;
             
-            std::cout << "Software framebuffer created: " << info.width << "x" << info.height << 
-                         " (" << info.size << " bytes)" << std::endl;
+            LOG_INFO() << "Software framebuffer created: " << info.width << "x" << info.height << " (" << info.size << " bytes)" << std::endl;
             return true;
         }
         
@@ -190,15 +190,15 @@ namespace display {
         create_dumb.bpp = info.bpp;
         
         if (drmFd < 0) {
-            std::cerr << "Failed to get DRM device file descriptor" << std::endl;
+            LOG_ERROR() << "Failed to get DRM device file descriptor" << std::endl;
             return false;
         }
         
-        std::cout << "Creating dumb buffer: " << info.width << "x" << info.height << 
+        LOG_INFO() << "Creating dumb buffer: " << info.width << "x" << info.height << 
                      " @ " << info.bpp << " bpp" << std::endl;
         
         if (ioctl(drmFd, DRM_IOCTL_MODE_CREATE_DUMB, &create_dumb) < 0) {
-            std::cerr << "Failed to create dumb buffer: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to create dumb buffer: " << strerror(errno) << std::endl;
             return false;
         }
         
@@ -206,14 +206,14 @@ namespace display {
         info.pitch = create_dumb.pitch;
         info.size = create_dumb.size;
         
-        std::cout << "Dumb buffer created successfully - handle: " << create_dumb.handle << 
+        LOG_INFO() << "Dumb buffer created successfully - handle: " << create_dumb.handle << 
                      ", pitch: " << info.pitch << ", size: " << info.size << std::endl;
         
         // Add framebuffer to DRM
         if (drmModeAddFB(drmFd, info.width, info.height, info.depth, info.bpp, 
                         info.pitch, create_dumb.handle, &framebufferId) != 0) {
-            std::cerr << "Failed to add framebuffer: " << strerror(errno) << std::endl;
-            std::cerr << "FB params: " << info.width << "x" << info.height << 
+            LOG_ERROR() << "Failed to add framebuffer: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "FB params: " << info.width << "x" << info.height << 
                          ", depth: " << info.depth << ", bpp: " << info.bpp << 
                          ", pitch: " << info.pitch << ", handle: " << create_dumb.handle << std::endl;
             
@@ -224,14 +224,14 @@ namespace display {
             return false;
         }
         
-        std::cout << "Framebuffer added to DRM successfully - FB ID: " << framebufferId << std::endl;
+        LOG_INFO() << "Framebuffer added to DRM successfully - FB ID: " << framebufferId << std::endl;
         
         // Map the buffer for CPU access
         struct drm_mode_map_dumb map_dumb = {};
         map_dumb.handle = create_dumb.handle;
         
         if (ioctl(drmFd, DRM_IOCTL_MODE_MAP_DUMB, &map_dumb) < 0) {
-            std::cerr << "Failed to map dumb buffer: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to map dumb buffer: " << strerror(errno) << std::endl;
             drmModeRmFB(drmFd, framebufferId);
             
             // Clean up the dumb buffer
@@ -243,7 +243,7 @@ namespace display {
         
         buffer = mmap(0, info.size, PROT_READ | PROT_WRITE, MAP_SHARED, drmFd, map_dumb.offset);
         if (buffer == MAP_FAILED) {
-            std::cerr << "Failed to mmap framebuffer: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to mmap framebuffer: " << strerror(errno) << std::endl;
             drmModeRmFB(drmFd, framebufferId);
             buffer = nullptr;
             
@@ -254,7 +254,7 @@ namespace display {
             return false;
         }
         
-        std::cout << "Framebuffer mapped successfully at address: " << buffer << std::endl;
+        LOG_INFO() << "Framebuffer mapped successfully at address: " << buffer << std::endl;
         
         mapped = true;
         return true;
@@ -397,7 +397,7 @@ namespace display {
                                      0, 0, currentFb->getWidth() << 16, currentFb->getHeight() << 16);
             
             if (ret != 0) {
-                std::cerr << "Failed to set plane: " << strerror(errno) << " (" << ret << ")" << std::endl;
+                LOG_ERROR() << "Failed to set plane: " << strerror(errno) << " (" << ret << ")" << std::endl;
                 return false;
             }
             
@@ -499,7 +499,7 @@ namespace display {
             return display::manager::Device->commitAtomic(false);
         } else {
             // Legacy mode setting is handled by the device's setMode function
-            std::cout << "CRTC commit using legacy mode setting" << std::endl;
+            LOG_INFO() << "CRTC commit using legacy mode setting" << std::endl;
             return true;
         }
     }
@@ -551,31 +551,31 @@ namespace display {
             return modes[preferredMode];
         }
 
-        std::cout << "Looking for preferred mode among " << modes.size() << " available modes for " << getName() << std::endl;
+        LOG_INFO() << "Looking for preferred mode among " << modes.size() << " available modes for " << getName() << std::endl;
         
         // List all available modes for debugging
         for (size_t i = 0; i < modes.size(); ++i) {
             const auto& m = modes[i];
-            std::cout << "  Mode " << i << ": " << m.getWidth() << "x" << m.getHeight() << "@" << m.getRefreshRate() << "Hz" << (m.isPreferred() ? " (preferred)" : "") << " - " << m.getName() << std::endl;
+            LOG_VERBOSE() << "  Mode " << i << ": " << m.getWidth() << "x" << m.getHeight() << "@" << m.getRefreshRate() << "Hz" << (m.isPreferred() ? " (preferred)" : "") << " - " << m.getName() << std::endl;
         }
         
         auto it = std::find_if(modes.begin(), modes.end(),
             [](const mode& mode) { return mode.isPreferred(); });
         
         if (it != modes.end()) {
-            std::cout << "Found preferred mode: " << it->getWidth() << "x" << it->getHeight() << "@" << it->getRefreshRate() << "Hz" << std::endl;
+            LOG_INFO() << "Found preferred mode: " << it->getWidth() << "x" << it->getHeight() << "@" << it->getRefreshRate() << "Hz" << std::endl;
             preferredMode = std::distance(modes.begin(), it);
             return *it;
         }
         
         // Return first mode if no preferred mode found
         if (!modes.empty()) {
-            std::cout << "No preferred mode found, using first available: " << modes[0].getWidth() << "x" << modes[0].getHeight() << "@" << modes[0].getRefreshRate() << "Hz" << std::endl;
+            LOG_INFO() << "No preferred mode found, using first available: " << modes[0].getWidth() << "x" << modes[0].getHeight() << "@" << modes[0].getRefreshRate() << "Hz" << std::endl;
             preferredMode = 0;
             return modes[0];
         }
         
-        std::cout << "No modes available, using default 1920x1080@60Hz" << std::endl;
+        LOG_INFO() << "No modes available, using default 1920x1080@60Hz" << std::endl;
         static mode defaultMode(mode::ModeInfo{1920, 1080, 60, 0, "1920x1080", false});
         preferredMode = -1; // Reset preferred mode index
         return defaultMode;
@@ -621,7 +621,7 @@ namespace display {
         
         // If status changed, update modes
         if (status != oldStatus) {
-            std::cout << "Connector " << getName() << " status changed from " << 
+            LOG_INFO() << "Connector " << getName() << " status changed from " << 
                          (oldStatus == Status::CONNECTED ? "CONNECTED" : 
                           oldStatus == Status::DISCONNECTED ? "DISCONNECTED" : "UNKNOWN") << 
                          " to " << getStatusString() << std::endl;
@@ -673,7 +673,7 @@ namespace display {
             addMode(mode(modeInfo));
         }
         
-        std::cout << "Refreshed " << modes.size() << " modes for connector " << getName() << std::endl;
+        LOG_INFO() << "Refreshed " << modes.size() << " modes for connector " << getName() << std::endl;
         
         drmModeFreeConnector(drmConn);
     }
@@ -804,13 +804,13 @@ namespace display {
         }
         
         if (!openDevice()) {
-            std::cerr << "Failed to open DRM device: " << devicePath << std::endl;
+            LOG_ERROR() << "Failed to open DRM device: " << devicePath << std::endl;
             return false;
         }
         
         // Check if we're in headless mode (no real hardware)
         if (deviceFd == -2) {
-            std::cout << "Initializing in headless mode..." << std::endl;
+            LOG_INFO() << "Initializing in headless mode..." << std::endl;
             atomicSupported = false;
             
             // Create dummy connectors and modes for headless operation
@@ -838,7 +838,7 @@ namespace display {
         }
         
         if (!discoverResources()) {
-            std::cerr << "Failed to discover DRM resources" << std::endl;
+            LOG_ERROR() << "Failed to discover DRM resources" << std::endl;
             cleanup();
             return false;
         }
@@ -910,11 +910,11 @@ namespace display {
         for (const auto& crtc : crtcs) {
             // For now, just return the first CRTC
             // In a more sophisticated implementation, we would check if the CRTC is currently active
-            std::cout << "Using CRTC ID: " << crtc->getId() << std::endl;
+            LOG_INFO() << "Using CRTC ID: " << crtc->getId() << std::endl;
             return crtc;
         }
         
-        std::cerr << "No free CRTC found (total CRTCs: " << crtcs.size() << ")" << std::endl;
+        LOG_ERROR() << "No free CRTC found (total CRTCs: " << crtcs.size() << ")" << std::endl;
         return nullptr;
     }
 
@@ -978,7 +978,7 @@ namespace display {
         // Find the actual DRM mode from the connector's supported modes
         drmModeConnector* drmConn = drmModeGetConnector(deviceFd, connector->getId());
         if (!drmConn) {
-            std::cerr << "Failed to get connector " << connector->getId() << std::endl;
+            LOG_ERROR() << "Failed to get connector " << connector->getId() << std::endl;
             return false;
         }
         
@@ -995,7 +995,7 @@ namespace display {
         }
         
         if (!targetMode) {
-            std::cerr << "Mode " << mode.getWidth() << "x" << mode.getHeight() << 
+            LOG_ERROR() << "Mode " << mode.getWidth() << "x" << mode.getHeight() << 
                          "@" << mode.getRefreshRate() << "Hz not found in connector's mode list" << std::endl;
             drmModeFreeConnector(drmConn);
             return false;
@@ -1019,7 +1019,7 @@ namespace display {
         }
         
         if (!enc) {
-            std::cerr << "No encoder found for connector " << connector->getId() << std::endl;
+            LOG_ERROR() << "No encoder found for connector " << connector->getId() << std::endl;
             drmModeFreeConnector(drmConn);
             return false;
         }
@@ -1035,7 +1035,7 @@ namespace display {
         }
         
         if (!crtcObj) {
-            std::cerr << "No CRTC available for connector " << connector->getId() << std::endl;
+            LOG_ERROR() << "No CRTC available for connector " << connector->getId() << std::endl;
             drmModeFreeConnector(drmConn);
             return false;
         }
@@ -1052,7 +1052,7 @@ namespace display {
         
         auto fb = createFramebuffer(fbInfo);
         if (!fb || !fb->map()) {
-            std::cerr << "Failed to create framebuffer for mode setting" << std::endl;
+            LOG_ERROR() << "Failed to create framebuffer for mode setting" << std::endl;
             drmModeFreeConnector(drmConn);
             return false;
         }
@@ -1066,10 +1066,10 @@ namespace display {
         int ret = drmModeSetCrtc(deviceFd, crtcObj->getId(), fb->getId(), 0, 0, connectorIds, 1, targetMode);
         
         if (ret != 0) {
-            std::cerr << "Failed to set mode: " << strerror(errno) << " (" << ret << ")" << std::endl;
-            std::cerr << "Mode details - CRTC: " << crtcObj->getId() << ", FB: " << fb->getId() << 
+            LOG_ERROR() << "Failed to set mode: " << strerror(errno) << " (" << ret << ")" << std::endl;
+            LOG_ERROR() << "Mode details - CRTC: " << crtcObj->getId() << ", FB: " << fb->getId() << 
                          ", Connector: " << connector->getId() << std::endl;
-            std::cerr << "Target mode: " << targetMode->hdisplay << "x" << targetMode->vdisplay << 
+            LOG_ERROR() << "Target mode: " << targetMode->hdisplay << "x" << targetMode->vdisplay << 
                          "@" << targetMode->vrefresh << "Hz" << std::endl;
             drmModeFreeConnector(drmConn);
             return false;
@@ -1080,7 +1080,7 @@ namespace display {
         crtcObj->setFramebuffer(fb);
         enc->setCrtc(crtcObj->getId());
         
-        std::cout << "Mode set successfully: " << mode.getWidth() << "x" << mode.getHeight() << 
+        LOG_INFO() << "Mode set successfully: " << mode.getWidth() << "x" << mode.getHeight() << 
                      "@" << mode.getRefreshRate() << "Hz on connector " << connector->getName() << std::endl;
         
         drmModeFreeConnector(drmConn);
@@ -1118,7 +1118,7 @@ namespace display {
          * @return true if property was added successfully, false otherwise
          */
         if (!atomicReq) {
-            std::cerr << "No atomic request active" << std::endl;
+            LOG_ERROR() << "No atomic request active" << std::endl;
             return false;
         }
         
@@ -1126,7 +1126,7 @@ namespace display {
         // we would need to look up the property ID from the property name
         // and add it to the atomic request using drmModeAtomicAddProperty
         
-        std::cout << "Adding atomic property: object=" << objectId << ", property=" << property << ", value=" << value << std::endl;
+        LOG_INFO() << "Adding atomic property: object=" << objectId << ", property=" << property << ", value=" << value << std::endl;
         
         // For now, just return true to indicate we would add the property
         return true;
@@ -1168,7 +1168,7 @@ namespace display {
                                  DRM_MODE_PAGE_FLIP_EVENT, userData);
         
         if (ret != 0) {
-            std::cerr << "Failed to initiate page flip: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to initiate page flip: " << strerror(errno) << std::endl;
             return false;
         }
         
@@ -1202,7 +1202,7 @@ namespace display {
                         timeoutMs >= 0 ? &timeout : nullptr);
         
         if (ret < 0) {
-            std::cerr << "Failed to select on DRM fd: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to select on DRM fd: " << strerror(errno) << std::endl;
             return false;
         }
         
@@ -1229,7 +1229,7 @@ namespace display {
             
             ret = drmHandleEvent(deviceFd, &evctx);
             if (ret != 0) {
-                std::cerr << "Failed to handle DRM event: " << strerror(errno) << std::endl;
+                LOG_ERROR() << "Failed to handle DRM event: " << strerror(errno) << std::endl;
                 return false;
             }
         }
@@ -1244,14 +1244,14 @@ namespace display {
     bool device::openDevice() {
         // If no device path is specified, try to find one dynamically
         if (devicePath.empty()) {
-            std::cout << "No DRM device path specified, attempting dynamic discovery..." << std::endl;
+            LOG_VERBOSE() << "No DRM device path specified, attempting dynamic discovery..." << std::endl;
             devicePath = findDrmDevicePath();
             if (devicePath.empty()) {
-                std::cerr << "Failed to find any suitable DRM device" << std::endl;
+                LOG_ERROR() << "Failed to find any suitable DRM device" << std::endl;
                 
                 // Enable headless mode for development
-                std::cout << "No graphics hardware detected. Enabling headless mode for development." << std::endl;
-                std::cout << "Note: This mode is for development/testing only and won't display anything." << std::endl;
+                LOG_INFO() << "No graphics hardware detected. Enabling headless mode for development." << std::endl;
+                LOG_INFO() << "Note: This mode is for development/testing only and won't display anything." << std::endl;
                 
                 deviceFd = -2;  // Special value to indicate headless mode
                 return true;
@@ -1260,17 +1260,17 @@ namespace display {
 
         deviceFd = open(devicePath.c_str(), O_RDWR | O_CLOEXEC);
         if (deviceFd < 0) {
-            std::cerr << "Failed to open DRM device " << devicePath << ": " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to open DRM device " << devicePath << ": " << strerror(errno) << std::endl;
             
             // If the specified path failed, try dynamic discovery as fallback
             if (!devicePath.empty()) {
-                std::cout << "Attempting dynamic device discovery as fallback..." << std::endl;
+                LOG_INFO() << "Attempting dynamic device discovery as fallback..." << std::endl;
                 std::string fallbackPath = findDrmDevicePath();
                 if (!fallbackPath.empty() && fallbackPath != devicePath) {
                     devicePath = fallbackPath;
                     deviceFd = open(devicePath.c_str(), O_RDWR | O_CLOEXEC);
                     if (deviceFd >= 0) {
-                        std::cout << "Successfully opened fallback DRM device: " << devicePath << std::endl;
+                        LOG_INFO() << "Successfully opened fallback DRM device: " << devicePath << std::endl;
                         return true;
                     }
                 }
@@ -1278,8 +1278,8 @@ namespace display {
             
             // Check if we're in a virtual environment without real graphics hardware
             if (errno == ENODEV) {
-                std::cout << "No graphics hardware detected. Enabling headless mode for development." << std::endl;
-                std::cout << "Note: This mode is for development/testing only and won't display anything." << std::endl;
+                LOG_INFO() << "No graphics hardware detected. Enabling headless mode for development." << std::endl;
+                LOG_INFO() << "Note: This mode is for development/testing only and won't display anything." << std::endl;
                 
                 // Set a flag to indicate we're in headless mode
                 deviceFd = -2;  // Special value to indicate headless mode
@@ -1289,7 +1289,7 @@ namespace display {
             return false;
         }
         
-        std::cout << "Successfully opened DRM device: " << devicePath << std::endl;
+        LOG_INFO() << "Successfully opened DRM device: " << devicePath << std::endl;
         return true;
     }
 
@@ -1311,22 +1311,22 @@ namespace display {
          * @return true if resources were successfully loaded, false otherwise
          */
         if (deviceFd < 0) {
-            std::cerr << "Device not opened, cannot load resources" << std::endl;
+            LOG_ERROR() << "Device not opened, cannot load resources" << std::endl;
             return false;
         }
         
         // Get DRM resources
         drmModeRes* resources = drmModeGetResources(deviceFd);
         if (!resources) {
-            std::cerr << "Failed to get DRM resources: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to get DRM resources: " << strerror(errno) << std::endl;
             return false;
         }
         
-        std::cout << "DRM Resources loaded successfully:" << std::endl;
-        std::cout << "  Connectors: " << resources->count_connectors << std::endl;
-        std::cout << "  CRTCs: " << resources->count_crtcs << std::endl;
-        std::cout << "  Encoders: " << resources->count_encoders << std::endl;
-        std::cout << "  Framebuffers: " << resources->count_fbs << std::endl;
+        LOG_INFO() << "DRM Resources loaded successfully:" << std::endl;
+        LOG_INFO() << "  Connectors: " << resources->count_connectors << std::endl;
+        LOG_INFO() << "  CRTCs: " << resources->count_crtcs << std::endl;
+        LOG_INFO() << "  Encoders: " << resources->count_encoders << std::endl;
+        LOG_INFO() << "  Framebuffers: " << resources->count_fbs << std::endl;
         
         // Store resource IDs for later use
         drmModeFreeResources(resources);
@@ -1433,7 +1433,7 @@ namespace display {
             connectors.push_back(conn);
             drmModeFreeConnector(drmConn);
             
-            std::cout << "Loaded connector: " << conn->getName() << " (" << conn->getStatusString() << ")" << std::endl;
+            LOG_INFO() << "Loaded connector: " << conn->getName() << " (" << conn->getStatusString() << ")" << std::endl;
         }
         
         drmModeFreeResources(resources);
@@ -1514,7 +1514,7 @@ namespace display {
             crtcs.push_back(crtcObj);
             drmModeFreeCrtc(drmCrtc);
             
-            std::cout << "Loaded CRTC: " << crtcObj->getId() << std::endl;
+            LOG_INFO() << "Loaded CRTC: " << crtcObj->getId() << std::endl;
         }
         
         drmModeFreeResources(resources);
@@ -1576,7 +1576,7 @@ namespace display {
             encoders.push_back(enc);
             drmModeFreeEncoder(drmEnc);
             
-            std::cout << "Loaded encoder: " << enc->getId() << " (" << enc->getTypeString() << ")" << std::endl;
+            LOG_INFO() << "Loaded encoder: " << enc->getId() << " (" << enc->getTypeString() << ")" << std::endl;
         }
         
         drmModeFreeResources(resources);
@@ -1602,7 +1602,7 @@ namespace display {
         
         drmModePlaneRes* planeRes = drmModeGetPlaneResources(deviceFd);
         if (!planeRes) {
-            std::cerr << "Failed to get plane resources: " << strerror(errno) << std::endl;
+            LOG_ERROR() << "Failed to get plane resources: " << strerror(errno) << std::endl;
             return false;
         }
         
@@ -1679,7 +1679,7 @@ namespace display {
             planes.push_back(planeObj);
             drmModeFreePlane(drmPlane);
             
-            std::cout << "Loaded plane: " << planeObj->getId() << " (type: " << 
+            LOG_INFO() << "Loaded plane: " << planeObj->getId() << " (type: " << 
                          (planeType == plane::Type::PRIMARY ? "PRIMARY" : 
                           planeType == plane::Type::CURSOR ? "CURSOR" : "OVERLAY") << ")" << std::endl;
         }
@@ -1802,13 +1802,13 @@ namespace display {
             return false;
         }
         
-        std::cout << "Setting up cloned displays for " << connectors.size() << " connectors" << std::endl;
+        LOG_INFO() << "Setting up cloned displays for " << connectors.size() << " connectors" << std::endl;
         
         // Set up each connector with the same mode
         bool success = true;
         for (const auto& connector : connectors) {
             if (!setupDisplay(connector, mode)) {
-                std::cerr << "Failed to set up cloned display for connector " << connector->getName() << std::endl;
+                LOG_ERROR() << "Failed to set up cloned display for connector " << connector->getName() << std::endl;
                 success = false;
             } else {
                 activeDisplays[connector->getId()] = connector;
@@ -1816,7 +1816,7 @@ namespace display {
         }
         
         if (success) {
-            std::cout << "Cloned displays setup completed successfully" << std::endl;
+            LOG_INFO() << "Cloned displays setup completed successfully" << std::endl;
         }
         
         return success;
@@ -1837,7 +1837,7 @@ namespace display {
             return false;
         }
         
-        std::cout << "Setting up extended displays for " << connectors.size() << " connectors" << std::endl;
+        LOG_INFO() << "Setting up extended displays for " << connectors.size() << " connectors" << std::endl;
         
         // Set up each connector with its preferred mode
         bool success = true;
@@ -1846,18 +1846,18 @@ namespace display {
             const mode& displayMode = connector->getPreferredMode();
 
             if (!setupDisplay(connector, displayMode)) {
-                std::cerr << "Failed to set up extended display for connector " << connector->getName() << std::endl;
+                LOG_ERROR() << "Failed to set up extended display for connector " << connector->getName() << std::endl;
                 success = false;
             } else {
                 activeDisplays[connector->getId()] = connector;
-                std::cout << "Extended display set up for " << connector->getName() << 
+                LOG_INFO() << "Extended display set up for " << connector->getName() << 
                              " at " << displayMode.getWidth() << "x" << displayMode.getHeight() << 
                              "@" << displayMode.getRefreshRate() << "Hz" << std::endl;
             }
         }
         
         if (success) {
-            std::cout << "Extended displays setup completed successfully" << std::endl;
+            LOG_INFO() << "Extended displays setup completed successfully" << std::endl;
         }
         
         return success;
@@ -1903,7 +1903,7 @@ namespace display {
             frameCount++;
             
             if (frameCount % 60 == 0) {  // Log every 60 frames (once per second at 60 FPS)
-                std::cout << "Headless mode: Frame " << frameCount << " rendered (" << 
+                LOG_INFO() << "Headless mode: Frame " << frameCount << " rendered (" << 
                              fb->getWidth() << "x" << fb->getHeight() << ")" << std::endl;
             }
             
@@ -1913,7 +1913,7 @@ namespace display {
         // Check if this connector is active
         auto it = activeDisplays.find(connector->getId());
         if (it == activeDisplays.end()) {
-            std::cerr << "Connector " << connector->getName() << " is not active" << std::endl;
+            LOG_ERROR() << "Connector " << connector->getName() << " is not active" << std::endl;
             return false;
         }
         
@@ -1927,7 +1927,7 @@ namespace display {
         }
         
         if (!crtcObj) {
-            std::cerr << "No CRTC found for connector " << connector->getName() << std::endl;
+            LOG_ERROR() << "No CRTC found for connector " << connector->getName() << std::endl;
             return false;
         }
         
@@ -1945,7 +1945,7 @@ namespace display {
         // If page flip fails, disable it for future frames to avoid spam
         if (pageFlipSupported) {
             pageFlipSupported = false;
-            std::cout << "Page flip not supported, using direct framebuffer updates" << std::endl;
+            LOG_INFO() << "Page flip not supported, using direct framebuffer updates" << std::endl;
         }
         
         // Since we can't do page flipping, just update the framebuffer reference
@@ -1980,7 +1980,7 @@ namespace display {
         
         // Check if we're in headless mode
         if (Device->getDeviceFd() == -2) {
-            std::cout << "Headless mode: Setting up virtual display " << connector->getName() << 
+            LOG_INFO() << "Headless mode: Setting up virtual display " << connector->getName() << 
                          " at " << mode.getWidth() << "x" << mode.getHeight() << 
                          "@" << mode.getRefreshRate() << "Hz" << std::endl;
             return true;
@@ -1989,18 +1989,18 @@ namespace display {
         // Ensure connector is connected
         if (!connector->isConnected()) {
             if (!connector->updateStatus() || !connector->isConnected()) {
-                std::cerr << "Connector " << connector->getName() << " is not connected" << std::endl;
+                LOG_ERROR() << "Connector " << connector->getName() << " is not connected" << std::endl;
                 return false;
             }
         }
         
         // Set the mode using the device
         if (!Device->setMode(connector, mode)) {
-            std::cerr << "Failed to set mode for connector " << connector->getName() << std::endl;
+            LOG_ERROR() << "Failed to set mode for connector " << connector->getName() << std::endl;
             return false;
         }
         
-        std::cout << "Display setup completed for " << connector->getName() << 
+        LOG_INFO() << "Display setup completed for " << connector->getName() << 
                      " at " << mode.getWidth() << "x" << mode.getHeight() << 
                      "@" << mode.getRefreshRate() << "Hz" << std::endl;
         
@@ -2021,7 +2021,7 @@ namespace display {
          * when no real graphics hardware is available. It sets up dummy connectors,
          * CRTCs, encoders, and planes that can be used for software testing.
          */
-        std::cout << "Creating headless display resources..." << std::endl;
+        LOG_INFO() << "Creating headless display resources..." << std::endl;
         
         // Create a dummy connector
         auto dummyConnector = std::make_shared<connector>(1, connector::Type::VIRTUAL, 1);
@@ -2064,11 +2064,11 @@ namespace display {
         
         dummyCrtc->addPlane(dummyPlane);
         
-        std::cout << "Created headless resources:" << std::endl;
-        std::cout << "  - 1 virtual connector with " << standardModes.size() << " modes" << std::endl;
-        std::cout << "  - 1 virtual CRTC" << std::endl;
-        std::cout << "  - 1 virtual encoder" << std::endl;
-        std::cout << "  - 1 virtual plane" << std::endl;
+        LOG_INFO() << "Created headless resources:" << std::endl;
+        LOG_INFO() << "  - 1 virtual connector with " << standardModes.size() << " modes" << std::endl;
+        LOG_INFO() << "  - 1 virtual CRTC" << std::endl;
+        LOG_INFO() << "  - 1 virtual encoder" << std::endl;
+        LOG_INFO() << "  - 1 virtual plane" << std::endl;
     }
 
 } // namespace display

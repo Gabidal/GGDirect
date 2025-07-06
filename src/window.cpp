@@ -44,6 +44,7 @@
 #include "input.h"
 #include "display.h"
 #include "font.h"
+#include "logger.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -132,10 +133,10 @@ namespace window {
         cellRect.size.x = pixelRect.size.x / cellWidth;
         cellRect.size.y = pixelRect.size.y / cellHeight;
         
-        std::cout << "Position " << static_cast<int>(pos) 
-                  << " -> Pixel: " << pixelRect.size.x << "x" << pixelRect.size.y 
-                  << " -> Cell: " << cellRect.size.x << "x" << cellRect.size.y 
-                  << " (cell size: " << cellWidth << "x" << cellHeight << ")" << std::endl;
+        LOG_VERBOSE() << "Position " << static_cast<int>(pos) 
+                      << " -> Pixel: " << pixelRect.size.x << "x" << pixelRect.size.y 
+                      << " -> Cell: " << cellRect.size.x << "x" << cellRect.size.y 
+                      << " (cell size: " << cellWidth << "x" << cellHeight << ")" << std::endl;
         
         return cellRect;
     }
@@ -154,14 +155,14 @@ namespace window {
         if (requiredSize != cellBuffer->size()) {
             // Resize the buffer to match the required size
             cellBuffer->resize(requiredSize);
-            std::cout << "Resized cell buffer to " << requiredSize << " cells (" 
-                      << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
+            LOG_VERBOSE() << "Resized cell buffer to " << requiredSize << " cells (" 
+                          << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
         }
 
         // Debug: Show current buffer state
-        std::cout << "Poll: Buffer size=" << cellBuffer->size() 
-                  << ", Required=" << requiredSize 
-                  << ", Dimensions=" << dimensionsInCells.x << "x" << dimensionsInCells.y << std::endl;
+        LOG_VERBOSE() << "Poll: Buffer size=" << cellBuffer->size() 
+                      << ", Required=" << requiredSize 
+                      << ", Dimensions=" << dimensionsInCells.x << "x" << dimensionsInCells.y << std::endl;
 
         // Now we'll get the buffer data from the GGUI client.
         if (!cellBuffer || cellBuffer->empty()) {
@@ -190,7 +191,7 @@ namespace window {
 
             if (flags == packet::notify::EMPTY_BUFFER) {
                 // If the buffer is empty, we can skip receiving the cell data
-                std::cout << "Received empty buffer, skipping frame" << std::endl;
+                LOG_VERBOSE() << "Received empty buffer, skipping frame" << std::endl;
                 return;  // Skip to the next handle
             } else {
                 std::cerr << "Unknown notify flag received: " << static_cast<int>(flags) << std::endl;
@@ -274,7 +275,7 @@ namespace window {
                                     windowRectangle.size.y
                                 };
 
-                                std::cout << "Sending initial dimensions to GGUI client: " 
+                                LOG_VERBOSE() << "Sending initial dimensions to GGUI client: " 
                                           << dimensionsInCells.x << "x" << dimensionsInCells.y << " cells" << std::endl;
 
                                 packet::type header = packet::type::RESIZE;
@@ -301,15 +302,15 @@ namespace window {
                                     
                                     // Verify that the handle has the same dimensions as what we sent
                                     types::rectangle testRect = newHandle.getCellCoordinates();
-                                    std::cout << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
+                                    LOG_VERBOSE() << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
                                     
                                     // Set the first handle as focused by default
                                     if (self.size() == 1) {
                                         setFocusedHandle(&self[0]);
-                                        std::cout << "Set first handle as focused for input." << std::endl;
+                                        LOG_VERBOSE() << "Set first handle as focused for input." << std::endl;
                                     }
                                     
-                                    std::cout << "Created handle on display " << newHandle.getDisplayId() << std::endl;
+                                    logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
                                 });
                             });
                         } catch (const std::exception& e) {
@@ -381,7 +382,7 @@ namespace window {
                 for (size_t i = 0; i < self.size(); ++i) {
                     uint32_t displayId = displayIds[i % displayIds.size()];
                     self[i].setDisplayId(displayId);
-                    std::cout << "Moved handle " << i << " to display " << displayId << std::endl;
+                    LOG_VERBOSE() << "Moved handle " << i << " to display " << displayId << std::endl;
                 }
             });
         }
@@ -399,7 +400,7 @@ namespace window {
             }
             
             windowHandle->setDisplayId(displayId);
-            std::cout << "Moved handle to display " << displayId << std::endl;
+            LOG_VERBOSE() << "Moved handle to display " << displayId << std::endl;
         }
         
         std::vector<uint32_t> getAvailableDisplayIds() {
@@ -446,8 +447,8 @@ namespace window {
                         break;
                 }
                 
-                std::cout << "Assigned displays to " << self.size() << " handles using strategy " 
-                          << static_cast<int>(strategy) << std::endl;
+                LOG_VERBOSE() << "Assigned displays to " << self.size() << " handles using strategy " 
+                              << static_cast<int>(strategy) << std::endl;
             });
         }
         
@@ -457,8 +458,8 @@ namespace window {
                 for (auto& handle : self) {
                     // Check if the handle's display still exists
                     if (!isValidDisplayId(handle.getDisplayId())) {
-                        std::cout << "Handle's display " << handle.getDisplayId() 
-                                  << " is no longer available, moving to primary display" << std::endl;
+                        LOG_VERBOSE() << "Handle's display " << handle.getDisplayId() 
+                                      << " is no longer available, moving to primary display" << std::endl;
                         handle.setDisplayId(getPrimaryDisplayId());
                     }
                 }
@@ -478,18 +479,18 @@ namespace window {
         
         // Debug function to print current handle-display mapping
         void printHandleDisplayMapping() {
-            std::cout << "=== Handle-Display Mapping ===" << std::endl;
+            LOG_VERBOSE() << "=== Handle-Display Mapping ===" << std::endl;
             handles([](std::vector<handle>& self) {
                 for (size_t i = 0; i < self.size(); ++i) {
-                    std::cout << "Handle " << i << " -> Display " 
-                              << self[i].getDisplayId() << std::endl;
+                    LOG_VERBOSE() << "Handle " << i << " -> Display " 
+                                  << self[i].getDisplayId() << std::endl;
                 }
             });
             
             auto distribution = getHandleDistribution();
-            std::cout << "=== Display Distribution ===" << std::endl;
+            LOG_VERBOSE() << "=== Display Distribution ===" << std::endl;
             for (const auto& pair : distribution) {
-                std::cout << "Display " << pair.first << ": " << pair.second << " handles" << std::endl;
+                LOG_VERBOSE() << "Display " << pair.first << ": " << pair.second << " handles" << std::endl;
             }
         }
     }

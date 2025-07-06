@@ -1841,7 +1841,7 @@ namespace display {
         for (const auto& connector : connectors) {
             // Use the preferred mode or first available mode
             const mode& displayMode = connector->getPreferredMode();
-            
+
             if (!setupDisplay(connector, displayMode)) {
                 std::cerr << "Failed to set up extended display for connector " << connector->getName() << std::endl;
                 success = false;

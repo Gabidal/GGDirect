@@ -51,6 +51,11 @@ namespace types {
         }
     };
 
+    struct rectangle {
+        iVector3 position;
+        iVector2 size;
+    };
+
     struct RGB {
         uint8_t r, g, b;
     };

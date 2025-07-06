@@ -119,7 +119,7 @@ namespace tcp {
          * @throws std::runtime_error if the socket is invalid or closed
          */
         template<typename T>
-        bool Send(const T* data, size_t count) {
+        bool Send(const T* data, size_t count = 1) {
             if (handle < 0) {
                 throw std::runtime_error("Cannot send on closed socket");
             }

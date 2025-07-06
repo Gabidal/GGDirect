@@ -95,7 +95,9 @@ namespace renderer {
                 window::manager::handles([&needsPresent](std::vector<window::handle>& self){
                     // First we'll need to order the handles, so that rendering order is correct, where lower z's get drawn first to be overdrawn.
                     std::sort(self.begin(), self.end(), [](const window::handle& a, const window::handle& b) {
-                        return a.position.z < b.position.z;  // Sort by z position
+                        types::rectangle aRectangle = window::positionToCoordinates(a.preset);
+                        types::rectangle bRectangle = window::positionToCoordinates(b.preset);
+                        return aRectangle.position.z < bRectangle.position.z;  // Sort by z position
                     });
 
                     // Receive cell buffers and remove problematic handles
@@ -154,8 +156,10 @@ namespace renderer {
             return false;
         }
 
+        types::rectangle windowRectangle = window::positionToCoordinates(handle->preset);
+
         // Additional safety checks
-        if (handle->size.x <= 0 || handle->size.y <= 0) {
+        if (windowRectangle.size.x <= 0 || windowRectangle.size.y <= 0) {
             return false;
         }
         
@@ -164,7 +168,7 @@ namespace renderer {
         }
 
         // Verify the buffer size matches the expected dimensions
-        size_t expectedSize = static_cast<size_t>(handle->size.x) * static_cast<size_t>(handle->size.y);
+        size_t expectedSize = static_cast<size_t>(windowRectangle.size.x) * static_cast<size_t>(windowRectangle.size.y);
         if (handle->cellBuffer->size() != expectedSize) {
             std::cerr << "Buffer size mismatch: expected " << expectedSize << " cells, got " << handle->cellBuffer->size() << std::endl;
             return false;
@@ -185,19 +189,19 @@ namespace renderer {
         int cellHeight = static_cast<int>(baseCellHeight * handle->zoom);
         
         // Calculate total window dimensions
-        int windowWidth = handle->size.x * cellWidth;
-        int windowHeight = handle->size.y * cellHeight;
+        int windowWidth = windowRectangle.size.x * cellWidth;
+        int windowHeight = windowRectangle.size.y * cellHeight;
         
         // Ensure we don't exceed framebuffer boundaries
-        int maxX = std::min(handle->position.x + windowWidth, static_cast<int>(currentFramebuffer->getWidth()));
-        int maxY = std::min(handle->position.y + windowHeight, static_cast<int>(currentFramebuffer->getHeight()));
+        int maxX = std::min(windowRectangle.position.x + windowWidth, static_cast<int>(currentFramebuffer->getWidth()));
+        int maxY = std::min(windowRectangle.position.y + windowHeight, static_cast<int>(currentFramebuffer->getHeight()));
         
         bool didRender = false;
         
         // Render each cell
-        for (int cellY = 0; cellY < handle->size.y; cellY++) {
-            for (int cellX = 0; cellX < handle->size.x; cellX++) {
-                int cellIndex = cellY * handle->size.x + cellX;
+        for (int cellY = 0; cellY < windowRectangle.size.y; cellY++) {
+            for (int cellX = 0; cellX < windowRectangle.size.x; cellX++) {
+                int cellIndex = cellY * windowRectangle.size.x + cellX;
                 
                 // Bounds check for cell buffer access
                 if (cellIndex < 0 || static_cast<size_t>(cellIndex) >= handle->cellBuffer->size()) {
@@ -208,8 +212,8 @@ namespace renderer {
                 const types::Cell& cell = (*handle->cellBuffer)[cellIndex];
                 
                 // Calculate pixel position in framebuffer
-                int pixelX = handle->position.x + cellX * cellWidth;
-                int pixelY = handle->position.y + cellY * cellHeight;
+                int pixelX = windowRectangle.position.x + cellX * cellWidth;
+                int pixelY = windowRectangle.position.y + cellY * cellHeight;
                 
                 // Skip if out of bounds
                 if (pixelX >= maxX || pixelY >= maxY) {

@@ -6,9 +6,28 @@
 #include "guard.h"
 
 #include <vector>
+#include <map>
 
 
 namespace window {
+
+    enum class position {
+        FULLSCREEN,
+        LEFT, RIGHT,
+        TOP, BOTTOM,
+    };
+
+    // Forward declaration for the handle class
+    class handle;
+
+    extern types::rectangle positionToCoordinates(position pos, const handle& windowHandle);
+    extern types::rectangle positionToCoordinates(position pos, uint32_t displayId = 0);  // Legacy function for backward compatibility
+    
+    // Utility functions for display management
+    extern uint32_t getPrimaryDisplayId();
+    extern bool isValidDisplayId(uint32_t displayId);
+    extern types::iVector2 getDisplayResolution(uint32_t displayId);
+
     /*
     As each GGUI gets its input from the terminal hosting it. We currently need to first instate a new terminal and then host GGUI on top of it, for GGUI to get input from it.
     We can later on, give each handle Focused mode, and perpetrate the inputs from here and give them through sockets to each individual GGUI instance. 
@@ -16,8 +35,7 @@ namespace window {
     class handle {
     public:
         // I'm not sure where we can get the position of hosting terminal for the current GGUI handle, this will be more important once we start to give inputs from here and ditch terminal hosting.
-        types::iVector3 position;   // Z represents draw order, higher = later draw.
-        types::iVector2 size;       // Updated two directionally, from GGUI to here via terminal size update, or from here to GGUI when we ditch terminal hosting.
+        position preset;   // Z represents draw order, higher = later draw.
         unsigned int errorCount;
 
         constexpr static unsigned int maxAllowedErrorCount = 10;
@@ -30,8 +48,11 @@ namespace window {
         std::string name;   // This is given from the GGUI client, to remember on next startup the location and size of window for more continuous experience.
 
         std::vector<types::Cell>* cellBuffer;
+        
+        // Display management - track which display this handle is positioned on
+        uint32_t displayId;  // ID of the display this handle is associated with
 
-        handle(tcp::connection&& conn) : position({}), size({10, 10}), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>(size.x*size.y)){}
+        handle(tcp::connection&& conn) : preset(position::FULLSCREEN), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(nullptr), displayId(0) {}
 
         ~handle() {
             delete cellBuffer;
@@ -48,6 +69,11 @@ namespace window {
 
         // polls from GGUI dimensions and cell buffer
         void poll();
+        
+        // Display management methods
+        void setDisplayId(uint32_t newDisplayId) { displayId = newDisplayId; }
+        uint32_t getDisplayId() const { return displayId; }
+        types::rectangle getCoordinates() const { return positionToCoordinates(preset, *this); }
     };
 
     // Manages all of the handles and their handshake protocol steps.
@@ -65,6 +91,24 @@ namespace window {
         extern handle* getFocusedHandle();
         extern void setFocusedHandleByIndex(size_t index);
         extern size_t getActiveHandleCount();
+        
+        // Display management functions
+        extern void distributeHandlesAcrossDisplays();
+        extern void moveHandleToDisplay(handle* windowHandle, uint32_t displayId);
+        extern std::vector<uint32_t> getAvailableDisplayIds();
+        
+        // Display assignment strategies
+        enum class DisplayAssignmentStrategy {
+            ROUND_ROBIN,    // Distribute handles across displays in round-robin fashion
+            PRIMARY_ONLY,   // All handles go to primary display
+            FILL_THEN_NEXT  // Fill one display before moving to next
+        };
+        extern void assignDisplaysToHandles(DisplayAssignmentStrategy strategy = DisplayAssignmentStrategy::ROUND_ROBIN);
+        
+        // Display monitoring and updates
+        extern void updateHandleDisplays();
+        extern std::map<uint32_t, size_t> getHandleDistribution();
+        extern void printHandleDisplayMapping();
     };
 }
 

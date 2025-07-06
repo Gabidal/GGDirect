@@ -330,7 +330,7 @@ namespace display {
         Status getStatus() const { return status; }
         uint32_t getEncoderId() const { return encoderId; }
         const std::vector<mode>& getModes() const { return modes; }
-        const mode& getPreferredMode() const;
+        const mode& getPreferredMode();
         const std::string& getName() const { return name; }
 
         // Connection management
@@ -365,6 +365,7 @@ namespace display {
         std::string name;
         std::map<std::string, std::shared_ptr<property>> properties;
         std::shared_ptr<encoder> Encoder;
+        int preferredMode = -1;  // points to the modes as an index.
     };
 
     /**

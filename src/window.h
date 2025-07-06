@@ -23,6 +23,12 @@ namespace window {
     extern types::rectangle positionToCoordinates(position pos, const handle& windowHandle);
     extern types::rectangle positionToCoordinates(position pos, uint32_t displayId = 0);  // Legacy function for backward compatibility
     
+    // New functions to distinguish between pixel and cell coordinates
+    extern types::rectangle positionToPixelCoordinates(position pos, const handle& windowHandle);
+    extern types::rectangle positionToPixelCoordinates(position pos, uint32_t displayId = 0);
+    extern types::rectangle positionToCellCoordinates(position pos, const handle& windowHandle);
+    extern types::rectangle positionToCellCoordinates(position pos, uint32_t displayId = 0);
+    
     // Utility functions for display management
     extern uint32_t getPrimaryDisplayId();
     extern bool isValidDisplayId(uint32_t displayId);
@@ -52,7 +58,7 @@ namespace window {
         // Display management - track which display this handle is positioned on
         uint32_t displayId;  // ID of the display this handle is associated with
 
-        handle(tcp::connection&& conn) : preset(position::FULLSCREEN), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(nullptr), displayId(0) {}
+        handle(tcp::connection&& conn) : preset(position::FULLSCREEN), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>()), displayId(0) {}
 
         ~handle() {
             delete cellBuffer;
@@ -73,7 +79,9 @@ namespace window {
         // Display management methods
         void setDisplayId(uint32_t newDisplayId) { displayId = newDisplayId; }
         uint32_t getDisplayId() const { return displayId; }
-        types::rectangle getCoordinates() const { return positionToCoordinates(preset, *this); }
+        types::rectangle getCoordinates() const { return positionToCellCoordinates(preset, *this); }
+        types::rectangle getPixelCoordinates() const { return positionToPixelCoordinates(preset, *this); }
+        types::rectangle getCellCoordinates() const { return positionToCellCoordinates(preset, *this); }
     };
 
     // Manages all of the handles and their handshake protocol steps.

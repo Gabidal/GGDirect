@@ -546,35 +546,38 @@ namespace display {
         name = getTypeString() + "-" + std::to_string(id);
     }
 
-    const mode& connector::getPreferredMode() const {
+    const mode& connector::getPreferredMode() {
+        if (preferredMode != -1) {
+            return modes[preferredMode];
+        }
+
         std::cout << "Looking for preferred mode among " << modes.size() << " available modes for " << getName() << std::endl;
         
         // List all available modes for debugging
         for (size_t i = 0; i < modes.size(); ++i) {
             const auto& m = modes[i];
-            std::cout << "  Mode " << i << ": " << m.getWidth() << "x" << m.getHeight() << 
-                         "@" << m.getRefreshRate() << "Hz" << (m.isPreferred() ? " (preferred)" : "") << 
-                         " - " << m.getName() << std::endl;
+            std::cout << "  Mode " << i << ": " << m.getWidth() << "x" << m.getHeight() << "@" << m.getRefreshRate() << "Hz" << (m.isPreferred() ? " (preferred)" : "") << " - " << m.getName() << std::endl;
         }
         
         auto it = std::find_if(modes.begin(), modes.end(),
             [](const mode& mode) { return mode.isPreferred(); });
         
         if (it != modes.end()) {
-            std::cout << "Found preferred mode: " << it->getWidth() << "x" << it->getHeight() << 
-                         "@" << it->getRefreshRate() << "Hz" << std::endl;
+            std::cout << "Found preferred mode: " << it->getWidth() << "x" << it->getHeight() << "@" << it->getRefreshRate() << "Hz" << std::endl;
+            preferredMode = std::distance(modes.begin(), it);
             return *it;
         }
         
         // Return first mode if no preferred mode found
         if (!modes.empty()) {
-            std::cout << "No preferred mode found, using first available: " << modes[0].getWidth() << 
-                         "x" << modes[0].getHeight() << "@" << modes[0].getRefreshRate() << "Hz" << std::endl;
+            std::cout << "No preferred mode found, using first available: " << modes[0].getWidth() << "x" << modes[0].getHeight() << "@" << modes[0].getRefreshRate() << "Hz" << std::endl;
+            preferredMode = 0;
             return modes[0];
         }
         
         std::cout << "No modes available, using default 1920x1080@60Hz" << std::endl;
         static mode defaultMode(mode::ModeInfo{1920, 1080, 60, 0, "1920x1080", false});
+        preferredMode = -1; // Reset preferred mode index
         return defaultMode;
     }
 

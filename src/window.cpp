@@ -54,10 +54,20 @@
 namespace window {
 
     types::rectangle positionToCoordinates(position pos, const handle& windowHandle) {
-        return positionToCoordinates(pos, windowHandle.getDisplayId());
+        // Keep backward compatibility - this function returns cell coordinates
+        return positionToCellCoordinates(pos, windowHandle.getDisplayId());
     }
 
     types::rectangle positionToCoordinates(position pos, uint32_t displayId) {
+        // Keep backward compatibility - this function returns cell coordinates
+        return positionToCellCoordinates(pos, displayId);
+    }
+
+    types::rectangle positionToPixelCoordinates(position pos, const handle& windowHandle) {
+        return positionToPixelCoordinates(pos, windowHandle.getDisplayId());
+    }
+
+    types::rectangle positionToPixelCoordinates(position pos, uint32_t displayId) {
         // Get the display resolution dynamically based on the provided display ID
         types::iVector2 currentDisplayResolution;
         
@@ -76,7 +86,7 @@ namespace window {
             std::cerr << "Display ID " << displayId << " not found, using primary display" << std::endl;
         }
 
-        // Calculate position based on the preset
+        // Calculate position based on the preset (in pixels)
         if (pos == position::FULLSCREEN) {
             return {{0, 0}, currentDisplayResolution};
         } 
@@ -97,7 +107,57 @@ namespace window {
         }
     }
 
+    types::rectangle positionToCellCoordinates(position pos, const handle& windowHandle) {
+        return positionToCellCoordinates(pos, windowHandle.getDisplayId());
+    }
+
+    types::rectangle positionToCellCoordinates(position pos, uint32_t displayId) {
+        // Get pixel coordinates first
+        types::rectangle pixelRect = positionToPixelCoordinates(pos, displayId);
+        
+        // Convert to cell coordinates
+        int cellWidth = font::manager::getDefaultCellWidth();
+        int cellHeight = font::manager::getDefaultCellHeight();
+        
+        if (cellWidth <= 0 || cellHeight <= 0) {
+            std::cerr << "Invalid cell dimensions: " << cellWidth << "x" << cellHeight << std::endl;
+            // Return a reasonable default in cells
+            return {{0, 0}, {80, 24}};
+        }
+        
+        types::rectangle cellRect;
+        cellRect.position.x = pixelRect.position.x / cellWidth;
+        cellRect.position.y = pixelRect.position.y / cellHeight;
+        cellRect.position.z = pixelRect.position.z;
+        cellRect.size.x = pixelRect.size.x / cellWidth;
+        cellRect.size.y = pixelRect.size.y / cellHeight;
+        
+        std::cout << "Position " << static_cast<int>(pos) 
+                  << " -> Pixel: " << pixelRect.size.x << "x" << pixelRect.size.y 
+                  << " -> Cell: " << cellRect.size.x << "x" << cellRect.size.y 
+                  << " (cell size: " << cellWidth << "x" << cellHeight << ")" << std::endl;
+        
+        return cellRect;
+    }
+
     void handle::poll() {
+        // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
+        types::rectangle windowRectangle = positionToCellCoordinates(preset, displayId);
+
+        types::iVector2 dimensionsInCells = {
+            windowRectangle.size.x,
+            windowRectangle.size.y
+        };
+
+        unsigned int requiredSize = dimensionsInCells.x * dimensionsInCells.y;
+
+        if (requiredSize != cellBuffer->size()) {
+            // Resize the buffer to match the required size
+            cellBuffer->resize(requiredSize);
+            std::cout << "Resized cell buffer to " << requiredSize << " cells (" 
+                      << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
+        }
+
         // Now we'll get the buffer data from the GGUI client.
         if (!cellBuffer || cellBuffer->empty()) {
             std::cerr << "Cell buffer is invalid or empty" << std::endl;
@@ -202,7 +262,6 @@ namespace window {
                                 }
 
                                 // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
-                                // font::manager::getDefaultCellWidth()
                                 types::rectangle windowRectangle = window::positionToCoordinates(position::FULLSCREEN);
 
                                 types::iVector2 dimensionsInCells = {

@@ -31,9 +31,10 @@ int main(int argc, char* argv[]) {
     
     DRM::system::init();
 
-    // Keep the main thread alive
+    // Keep the main thread alive and check for shutdown conditions
     while (true) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // The signal handler will call exit(0) which triggers atexit cleanup
     }
 
     return 0;

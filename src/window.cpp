@@ -51,6 +51,9 @@
 #include <thread>
 #include <stdexcept>
 #include <iostream>
+#include <atomic>
+#include <chrono>
+#include <fcntl.h>
 
 namespace window {
 
@@ -249,6 +252,9 @@ namespace window {
         atomic::guard<std::vector<handle>> handles;
         atomic::guard<tcp::listener> listener;
         
+        // Shutdown control
+        std::atomic<bool> shouldShutdown{false};
+        
         // Focus management for input system
         static handle* currentFocusedHandle = nullptr;
         
@@ -278,15 +284,27 @@ namespace window {
 
                 // Now we will start listening for connections
                 std::thread reception = std::thread([]() {
-                    while (true) {
+                    while (!shouldShutdown.load()) {
                         try {
                             // Use the atomic guard to safely access the listener and get a connection
                             listener([](tcp::listener& listenerRef){
+                                // Set listener socket to non-blocking mode to allow checking shutdown flag
+                                int listenerFd = listenerRef.getHandle();
+                                if (listenerFd >= 0) {
+                                    int flags = fcntl(listenerFd, F_GETFL, 0);
+                                    if (flags >= 0) {
+                                        fcntl(listenerFd, F_SETFL, flags | O_NONBLOCK);
+                                    }
+                                }
+                                
                                 LOG_VERBOSE() << "Waiting for GGUI client connection..." << std::endl;
-                                tcp::connection conn = listenerRef.Accept();
-                                LOG_VERBOSE() << "Accepted connection from GGUI client" << std::endl;
-
-                                // We will first listen for GGUI to give its own port to establish an personal connection to this specific GGUI client
+                                
+                                try {
+                                    tcp::connection conn = listenerRef.Accept();
+                                    LOG_VERBOSE() << "Accepted connection from GGUI client" << std::endl;
+                                    
+                                    // Process the connection normally...
+                                    // We will first listen for GGUI to give its own port to establish an personal connection to this specific GGUI client
                                 uint16_t gguiPort;
                                 if (!conn.Receive(&gguiPort)) {
                                     std::cerr << "Failed to receive GGUI port" << std::endl;
@@ -354,12 +372,30 @@ namespace window {
                                     
                                     logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
                                 });
+                                } catch (const std::runtime_error& e) {
+                                    // This is expected when no connections are pending (non-blocking mode)
+                                    // We'll just continue and check again in the next iteration
+                                    std::string error_msg = e.what();
+                                    if (error_msg.find("Failed to accept connection") != std::string::npos) {
+                                        // No connection pending, this is normal in non-blocking mode
+                                        LOG_VERBOSE() << "No pending connections, continuing..." << std::endl;
+                                        return;
+                                    } else {
+                                        // Some other error, log it
+                                        std::cerr << "Unexpected error in connection handling: " << e.what() << std::endl;
+                                        return;
+                                    }
+                                }
                             });
                         } catch (const std::exception& e) {
                             std::cerr << "Error in reception thread: " << e.what() << std::endl;
                             continue;
                         }
+                        
+                        // Small sleep to prevent busy waiting when no connections are pending
+                        std::this_thread::sleep_for(std::chrono::seconds(1));
                     }
+                    LOG_VERBOSE() << "Reception thread exiting..." << std::endl;
                 });
 
                 reception.detach(); // Let reception retain after this local scope has ended.
@@ -370,14 +406,24 @@ namespace window {
         }
 
         void close() {
-            // listener has its destructor called automatically via atomic::guard.
-
-            // free all handles
+            LOG_VERBOSE() << "Shutting down window manager..." << std::endl;
+            
+            // Signal all threads to stop
+            shouldShutdown.store(true);
+            
+            // Give threads time to exit gracefully
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            
+            // Close all handles
             handles([](std::vector<handle>& self){
                 for (auto& h : self) {
                     h.close(); // Close each connection
                 }
+                self.clear(); // Clear the vector
             });
+            
+            // listener destructor will be called automatically via atomic::guard
+            LOG_VERBOSE() << "Window manager shutdown complete." << std::endl;
         }
         
         // Focus management functions

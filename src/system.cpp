@@ -62,13 +62,20 @@ namespace DRM {
             // Perform any necessary cleanup operations here
             LOG_VERBOSE() << "Cleaning up system resources..." << std::endl;
             
+            // Signal all threads to stop first
             // This is for when we start using conditional variables and mutex instead of while true loops on other threads.
             // We may need to notify other threads to wake up and check for shutdown conditions.
             
-            // Clean up input system
+            // Clean up input system first (stops polling threads)
+            // This should be fast since it properly joins threads
             input::exit();
             
+            // Clean up renderer (stops rendering thread)
+            // This may take up to 200ms to complete
             renderer::exit();
+            
+            // Clean up window manager last (stops reception thread and closes connections)
+            // This may take up to 200ms to complete
             window::manager::close();
 
             LOG_VERBOSE() << "System cleanup completed." << std::endl;

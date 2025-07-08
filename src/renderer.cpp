@@ -189,15 +189,20 @@ namespace renderer {
         LOG_VERBOSE() << "Shutting down renderer..." << std::endl;
         shouldExit = true;  // Signal renderer thread to exit
         
-        // Give the thread a moment to exit
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // Give the thread more time to exit gracefully
+        // The renderer thread sleeps for up to 33ms per iteration, so we need at least that much time
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
         
         if (currentFramebuffer) {
             currentFramebuffer->unmap();
+            currentFramebuffer.reset();
         }
+        
         font::manager::cleanup();
         display::manager::cleanup();
         rendererInitialized = false;
+        
+        LOG_VERBOSE() << "Renderer shutdown complete." << std::endl;
     }
 
     bool renderHandle(const window::handle* handle) {

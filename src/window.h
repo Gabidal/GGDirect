@@ -90,6 +90,9 @@ namespace window {
         
         // First we will make an listener with port number zero, to invoke the kernel giving us an empty port number to use.
         extern atomic::guard<tcp::listener> listener;
+        
+        // Shutdown control
+        extern std::atomic<bool> shouldShutdown;
 
         extern void init();
         extern void close();

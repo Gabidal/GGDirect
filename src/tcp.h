@@ -545,6 +545,17 @@ namespace tcp {
 
             return ntohs(actual.sin_port);
         }
+        
+        /**
+         * @brief Gets the underlying socket file descriptor.
+         * 
+         * This is useful for advanced socket operations like setting to non-blocking mode.
+         * 
+         * @return The socket file descriptor, or -1 if the listener is closed
+         */
+        int getHandle() const { 
+            return handle; 
+        }
     };
 
     /**

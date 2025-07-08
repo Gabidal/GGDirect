@@ -6,10 +6,19 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <algorithm>
+#include <fcntl.h>
+#include <errno.h>
+#include <iostream>
+#include <vector>
+
+#include "types.h"
+
 
 namespace packet {
     enum class type {
@@ -20,41 +29,77 @@ namespace packet {
         RESIZE,         // For sending/receiving GGUI resize
     };
 
-    enum class notify {
-        UNKNOWN         = 0 << 0,
-        EMPTY_BUFFER    = 1 << 0,
+    class base {
+    public:
+        type packetType = type::UNKNOWN;
+
+        base(type t) : packetType(t) {}
     };
 
-    enum class controlKey {
-        UNKNOWN         = 0 << 0,
-        SHIFT           = 1 << 0,
-        CTRL            = 1 << 1,
-        SUPER           = 1 << 2,
-        ALT             = 1 << 3,
-        ALTGR           = 1 << 4,
-        FN              = 1 << 5,
-        PRESSED_DOWN    = 1 << 6,   // Always on/off to indicate if the key is being pressed down or not.
+    namespace notify {
+        enum class type {
+            UNKNOWN         = 0 << 0,
+            EMPTY_BUFFER    = 1 << 0,
+            CLOSED          = 1 << 1,   // When GGUI client has shutdown
+        };
+
+        class base : public packet::base {
+        public:
+            type notifyType = type::UNKNOWN;
+
+            base(type t) : packet::base(packet::type::NOTIFY), notifyType(t) {}
+        };
+    }
+
+    namespace input {
+        enum class controlKey {
+            UNKNOWN         = 0 << 0,
+            SHIFT           = 1 << 0,
+            CTRL            = 1 << 1,
+            SUPER           = 1 << 2,
+            ALT             = 1 << 3,
+            ALTGR           = 1 << 4,
+            FN              = 1 << 5,
+            PRESSED_DOWN    = 1 << 6,   // Always on/off to indicate if the key is being pressed down or not.
+        };
+
+        enum class additionalKey {
+            UNKNOWN,
+            F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+            ARROW_UP, ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT,
+            HOME, END, PAGE_UP, PAGE_DOWN,
+            INSERT, DELETE,
+            LEFT_CLICK, MIDDLE_CLICK, RIGHT_CLICK, SCROLL_UP, SCROLL_DOWN,
+        };
+
+        class base : public packet::base {
+        public:
+            types::sVector2 mouse;      // Mouse position in the terminal   
+            controlKey modifiers;       // Control keys pressed
+            additionalKey additional;   // Additional keys pressed, which are not declared in ASCII
+            unsigned char key;          // ASCII key pressed, if any
+
+            base() : packet::base(packet::type::INPUT), mouse(), modifiers(controlKey::UNKNOWN), additional(additionalKey::UNKNOWN), key(0) {}
+        };
+    }
+
+    namespace resize {
+        class base : public packet::base {
+        public:
+            types::sVector2 size;
+
+            base(types::sVector2 s) : packet::base(packet::type::RESIZE), size(s) {}
+        };
+    }
+
+    union maxSizetype {
+        notify::base n;
+        input::base i;
+        resize::base r;
     };
 
-    enum class additionalKey {
-        UNKNOWN,
-        F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
-        ARROW_UP, ARROW_DOWN, ARROW_LEFT, ARROW_RIGHT,
-        HOME, END, PAGE_UP, PAGE_DOWN,
-        INSERT, DELETE,
-        LEFT_CLICK, MIDDLE_CLICK, RIGHT_CLICK, SCROLL_UP, SCROLL_DOWN,
-    };
-
-    struct input {
-        types::iVector2 mouse;      // Mouse position in the terminal   
-        controlKey modifiers;       // Control keys pressed
-        additionalKey additional;   // Additional keys pressed, which are not declared in ASCII
-        unsigned char key;          // ASCII key pressed, if any
-    };
-
-    struct resize {
-        types::iVector2 size;
-    };
+    // Computes at compile time the maximum needed buffer length for a packet.
+    constexpr int size = sizeof(maxSizetype);
 }
 
 namespace tcp {
@@ -86,6 +131,10 @@ namespace tcp {
          */
         ~connection() {
             close();
+        }
+
+        bool isClosed() {
+            return handle < 0;
         }
 
         // Disable copy constructor and assignment operator to prevent double-close
@@ -188,6 +237,162 @@ namespace tcp {
          * @return The socket file descriptor, or -1 if the connection is closed
          */
         int getHandle() const { return handle; }
+
+        /**
+         * @brief Makes the socket non-blocking.
+         * 
+         * @return true if successful, false otherwise
+         */
+        bool setNonBlocking() {
+            if (handle < 0) {
+                return false;
+            }
+            
+            int flags = fcntl(handle, F_GETFL, 0);
+            if (flags == -1) {
+                return false;
+            }
+            
+            return fcntl(handle, F_SETFL, flags | O_NONBLOCK) != -1;
+        }
+
+        /**
+         * @brief Checks if data is available for reading without blocking.
+         * 
+         * @return true if data is available, false otherwise
+         */
+        bool hasDataAvailable() {
+            if (handle < 0) {
+                return false;
+            }
+            
+            fd_set readfds;
+            FD_ZERO(&readfds);
+            FD_SET(handle, &readfds);
+            
+            struct timeval timeout = {0, 0};  // No timeout, immediate return
+            
+            int result = select(handle + 1, &readfds, nullptr, nullptr, &timeout);
+            return result > 0 && FD_ISSET(handle, &readfds);
+        }
+
+        /**
+         * @brief Non-blocking version of Receive that returns immediately if no data is available.
+         * 
+         * @tparam T The type of data to receive
+         * @param data Pointer to the buffer where received data will be stored
+         * @param count Number of elements of type T to receive
+         * @return true if all expected data was successfully received, false otherwise
+         */
+        template<typename T>
+        bool ReceiveNonBlocking(T* data, size_t count = 1) {
+            if (handle < 0) {
+                return false;
+            }
+            if (!data && count > 0) {
+                return false;
+            }
+            
+            size_t totalBytes = count * sizeof(T);
+            size_t bytesReceived = 0;
+            char* buffer = reinterpret_cast<char*>(data);
+            
+            // Keep receiving until we have all the data or would block
+            while (bytesReceived < totalBytes) {
+                // Check if more data is available before each read
+                if (!hasDataAvailable()) {
+                    // No more data available right now
+                    return false;
+                }
+                
+                ssize_t recvd = recv(handle, buffer + bytesReceived, totalBytes - bytesReceived, MSG_DONTWAIT);
+                
+                if (recvd < 0) {
+                    if (errno == EWOULDBLOCK) {
+                        // Would block, return false to indicate no complete data available
+                        return false;
+                    }
+                    // Other error
+                    return false;
+                }
+                if (recvd == 0) {
+                    // Connection closed by peer
+                    return false;
+                }
+                
+                bytesReceived += recvd;
+            }
+            
+            return bytesReceived == totalBytes;
+        }
+
+    private:
+        // Internal buffer for packet reception to handle partial reads
+        std::vector<char> packetBuffer;
+        size_t packetBytesReceived = 0;
+        
+    public:
+        /**
+         * @brief Attempt to receive a complete packet using internal buffering.
+         * 
+         * This method handles partial packet reception by maintaining an internal buffer.
+         * It will only return true when a complete packet has been received.
+         * 
+         * @param data Pointer to buffer where the complete packet will be stored
+         * @param packetSize Size of the packet to receive
+         * @return true if a complete packet was received, false otherwise
+         */
+        bool ReceivePacketNonBlocking(void* data, size_t packetSize) {
+            if (handle < 0 || !data || packetSize == 0) {
+                return false;
+            }
+            
+            // Initialize buffer if needed
+            if (packetBuffer.size() != packetSize) {
+                packetBuffer.resize(packetSize);
+                packetBytesReceived = 0;
+            }
+            
+            // Keep reading until we have a complete packet
+            while (packetBytesReceived < packetSize) {
+                // Check if data is available
+                if (!hasDataAvailable()) {
+                    return false; // No more data available right now
+                }
+                
+                ssize_t recvd = recv(
+                    handle, 
+                    packetBuffer.data() + packetBytesReceived, 
+                    packetSize - packetBytesReceived, 
+                    MSG_DONTWAIT
+                );
+                
+                if (recvd < 0) {
+                    if (errno == EWOULDBLOCK) {
+                        // Would block, but we might have partial data
+                        return false;
+                    }
+                    // Other error - reset buffer
+                    packetBytesReceived = 0;
+                    return false;
+                }
+                if (recvd == 0) {
+                    // Connection closed by peer - reset buffer
+                    packetBytesReceived = 0;
+                    return false;
+                }
+                
+                packetBytesReceived += recvd;
+            }
+            
+            // We have a complete packet, copy it to output buffer
+            std::memcpy(data, packetBuffer.data(), packetSize);
+            
+            // Reset for next packet
+            packetBytesReceived = 0;
+            
+            return true;
+        }
 
         /**
          * @brief Closes the TCP connection.
@@ -308,6 +513,12 @@ namespace tcp {
                 throw std::runtime_error("Failed to accept connection: " + std::string(strerror(errno)));
             }
             
+            // Enable TCP_NODELAY for lower latency on accepted connections
+            int nodelay = 1;
+            if (setsockopt(connFd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0) {
+                std::cerr << "Warning: Failed to enable TCP_NODELAY on accepted connection: " << strerror(errno) << std::endl;
+            }
+            
             return connection(connFd);
         }
 
@@ -363,6 +574,13 @@ namespace tcp {
             int sockFd = socket(AF_INET, SOCK_STREAM, 0);
             if (sockFd < 0) {
                 throw std::runtime_error("Failed to create socket: " + std::string(strerror(errno)));
+            }
+
+            // Enable TCP_NODELAY for lower latency
+            int nodelay = 1;
+            if (setsockopt(sockFd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0) {
+                // Non-fatal error, continue but log warning
+                std::cerr << "Warning: Failed to enable TCP_NODELAY: " << strerror(errno) << std::endl;
             }
 
             // Prepare address structure

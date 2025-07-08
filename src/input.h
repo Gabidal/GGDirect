@@ -91,7 +91,7 @@ namespace input {
         virtual ~IDeviceHandler() = default;
         virtual bool initialize(const DeviceInfo& deviceInfo) = 0;
         virtual void cleanup() = 0;
-        virtual bool processEvent(const RawEvent& rawEvent, packet::input& processedEvent) = 0;
+        virtual bool processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) = 0;
         virtual DeviceType getDeviceType() const = 0;
         virtual bool isDeviceSupported(const DeviceInfo& deviceInfo) const = 0;
     };
@@ -101,12 +101,12 @@ namespace input {
      */
     class KeyboardHandler : public IDeviceHandler {
     private:
-        packet::controlKey currentModifiers;
+        packet::input::controlKey currentModifiers;
         
     public:
         bool initialize(const DeviceInfo& deviceInfo) override;
         void cleanup() override;
-        bool processEvent(const RawEvent& rawEvent, packet::input& processedEvent) override;
+        bool processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) override;
         DeviceType getDeviceType() const override { return DeviceType::KEYBOARD; }
         bool isDeviceSupported(const DeviceInfo& deviceInfo) const override;
     };
@@ -123,7 +123,7 @@ namespace input {
         MouseHandler();
         bool initialize(const DeviceInfo& deviceInfo) override;
         void cleanup() override;
-        bool processEvent(const RawEvent& rawEvent, packet::input& processedEvent) override;
+        bool processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) override;
         DeviceType getDeviceType() const override { return DeviceType::MOUSE; }
         bool isDeviceSupported(const DeviceInfo& deviceInfo) const override;
     };
@@ -140,7 +140,7 @@ namespace input {
         TouchpadHandler();
         bool initialize(const DeviceInfo& deviceInfo) override;
         void cleanup() override;
-        bool processEvent(const RawEvent& rawEvent, packet::input& processedEvent) override;
+        bool processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) override;
         DeviceType getDeviceType() const override { return DeviceType::TOUCHPAD; }
         bool isDeviceSupported(const DeviceInfo& deviceInfo) const override;
     };
@@ -183,7 +183,7 @@ namespace input {
     class EventProcessor {
     private:
         DeviceManager* deviceManager;
-        std::function<void(const packet::input&)> eventCallback;
+        std::function<void(const packet::input::base&)> eventCallback;
         std::thread processingThread;
         std::atomic<bool> isRunning;
         
@@ -195,7 +195,7 @@ namespace input {
         ~EventProcessor();
         
         void setDeviceManager(DeviceManager* manager);
-        void setEventCallback(std::function<void(const packet::input&)> callback);
+        void setEventCallback(std::function<void(const packet::input::base&)> callback);
         
         void start();
         void stop();
@@ -227,8 +227,8 @@ namespace input {
         bool refreshDevices();
         
         // Event handling
-        void processInputEvent(const packet::input& inputEvent);
-        void sendInputToFocusedHandle(const packet::input& inputEvent);
+        void processInputEvent(const packet::input::base& inputEvent);
+        void sendInputToFocusedHandle(const packet::input::base& inputEvent);
     }
 
     /**

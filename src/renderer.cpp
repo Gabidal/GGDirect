@@ -90,8 +90,14 @@ namespace renderer {
         
         // Start rendering thread
         std::thread renderingThread([](){
+            size_t frameCounter = 0;
+            auto lastLogTime = std::chrono::high_resolution_clock::now();
+            int framesRendered = 0;
+            int totalFrames = 0;
+            
             while (!shouldExit) {
                 bool needsPresent = false;
+                auto frameStart = std::chrono::high_resolution_clock::now();
                 
                 window::manager::handles([&needsPresent](std::vector<window::handle>& self){
                     // First we'll need to order the handles, so that rendering order is correct, where lower z's get drawn first to be overdrawn.
@@ -103,6 +109,13 @@ namespace renderer {
 
                     // Receive cell buffers and remove problematic handles
                     for (int i = static_cast<int>(self.size()) - 1; i >= 0; i--) {
+                        if (self[i].connection.isClosed()) {
+                            // If the connection is closed, remove the handle
+                            std::cerr << "Removing handle " << i << " due to closed connection" << std::endl;
+                            self.erase(self.begin() + i);
+                            continue;
+                        }
+
                         if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
                             // This handle has given us way too many problems, remove it
                             std::cerr << "Removing handle " << i << " due to excessive errors (" << 
@@ -111,7 +124,7 @@ namespace renderer {
                             continue;
                         }
 
-                        // Safely poll the handle
+                        // Safely poll the handle (now non-blocking)
                         self[i].poll();
                     }
 
@@ -127,9 +140,44 @@ namespace renderer {
                 // Present the framebuffer only once per frame if anything was rendered
                 if (needsPresent && currentFramebuffer) {
                     display::manager::present(primaryConnector, currentFramebuffer);
+                    framesRendered++;
+                }
+                
+                totalFrames++;
+                frameCounter++;
+
+                // Log performance statistics every 5 seconds
+                auto now = std::chrono::high_resolution_clock::now();
+                auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime);
+                if (timeSinceLastLog.count() >= 5) {
+                    double avgFPS = static_cast<double>(totalFrames) / timeSinceLastLog.count();
+                    double renderRate = static_cast<double>(framesRendered) / timeSinceLastLog.count();
+                    LOG_VERBOSE() << "Renderer stats: " << avgFPS << " FPS, " 
+                                  << renderRate << " rendered FPS, " 
+                                  << ((renderRate / avgFPS) * 100.0) << "% utilization" << std::endl;
+                    
+                    lastLogTime = now;
+                    framesRendered = 0;
+                    totalFrames = 0;
                 }
 
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));  // cap at 60fps
+                // Adaptive timing: only sleep if we didn't do much work
+                auto frameEnd = std::chrono::high_resolution_clock::now();
+                auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart);
+                
+                if (needsPresent) {
+                    // If we rendered something, aim for higher FPS (120 FPS = ~8ms)
+                    const auto targetFrameTime = std::chrono::milliseconds(8);
+                    if (frameTime < targetFrameTime) {
+                        std::this_thread::sleep_for(targetFrameTime - frameTime);
+                    }
+                } else {
+                    // If nothing was rendered, sleep longer to reduce CPU usage (30 FPS = ~33ms)
+                    const auto idleFrameTime = std::chrono::milliseconds(33);
+                    if (frameTime < idleFrameTime) {
+                        std::this_thread::sleep_for(idleFrameTime - frameTime);
+                    }
+                }
             }
             LOG_VERBOSE() << "Renderer thread exiting..." << std::endl;
         });
@@ -157,6 +205,11 @@ namespace renderer {
             return false;
         }
 
+        if (handle->cellBuffer->empty()) {
+            // Since we use non-blocking tcp's the buffer can still be in transit, so we can skip this turn.
+            return false;
+        }
+
         // Get cell coordinates for buffer size validation
         types::rectangle windowCellRect = handle->getCellCoordinates();
         // Get pixel coordinates for rendering position
@@ -169,11 +222,6 @@ namespace renderer {
         // Additional safety checks
         if (windowCellRect.size.x <= 0 || windowCellRect.size.y <= 0) {
             std::cerr << "Invalid cell rectangle size: " << windowCellRect.size.x << "x" << windowCellRect.size.y << std::endl;
-            return false;
-        }
-        
-        if (handle->cellBuffer->empty()) {
-            std::cerr << "Cell buffer is empty" << std::endl;
             return false;
         }
 

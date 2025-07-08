@@ -142,6 +142,12 @@ namespace window {
     }
 
     void handle::poll() {
+        // Make sure the connection is non-blocking
+        if (!connection.hasDataAvailable()) {
+            // No data available, return immediately to avoid blocking
+            return;
+        }
+
         // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
         types::rectangle windowRectangle = positionToCellCoordinates(preset, displayId);
 
@@ -171,40 +177,67 @@ namespace window {
             return;
         }
 
-        packet::type incomingType;
-
-        if (!connection.Receive(&incomingType)) {
-            std::cerr << "Failed to receive packet type from GGUI client" << std::endl;
-            errorCount++;
-            return;  // Skip to the next handle
+        // Receive packet using the new buffered method
+        char packetBuffer[packet::size];
+        
+        if (!connection.ReceivePacketNonBlocking(packetBuffer, packet::size)) {
+            // No complete packet available, return without error
+            return;
         }
 
-        if (incomingType == packet::type::NOTIFY) {
-            // receive the notify packet
-            packet::notify flags;
+        // Cast to base packet to check type
+        packet::base* basePacket = reinterpret_cast<packet::base*>(packetBuffer);
+        
+        LOG_VERBOSE() << "Received packet type: " << static_cast<int>(basePacket->packetType) << std::endl;
+        
+        if (basePacket->packetType == packet::type::NOTIFY) {
+            // Cast to notify packet
+            packet::notify::base* notifyPacket = reinterpret_cast<packet::notify::base*>(packetBuffer);
 
-            if (!connection.Receive(&flags)) {
-                std::cerr << "Failed to receive notify flags from GGUI client" << std::endl;
-                errorCount++;
-                return;  // Skip to the next handle
-            }
-
-            if (flags == packet::notify::EMPTY_BUFFER) {
+            if (notifyPacket->notifyType == packet::notify::type::EMPTY_BUFFER) {
                 // If the buffer is empty, we can skip receiving the cell data
-                LOG_VERBOSE() << "Received empty buffer, skipping frame" << std::endl;
+                LOG_VERBOSE() << "Received empty buffer notification, skipping frame" << std::endl;
+                return;  // Skip to the next handle
+            } 
+            else if (notifyPacket->notifyType == packet::notify::type::CLOSED) {
+                LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
+                connection.close();
                 return;  // Skip to the next handle
             } else {
-                std::cerr << "Unknown notify flag received: " << static_cast<int>(flags) << std::endl;
+                std::cerr << "Unknown notify flag received: " << static_cast<int>(notifyPacket->notifyType) << std::endl;
                 errorCount++;
                 return;  // Skip to the next handle
             }
         }
-        else {
-            if (!connection.Receive(cellBuffer->data(), cellBuffer->size())) {
-                std::cerr << "Failed to receive buffer data from GGUI client" << std::endl;
-                errorCount++;
-                return;  // Skip to the next handle
+        else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
+            // This is a draw buffer packet, receive the cell buffer data
+            // For DRAW_BUFFER packets, the cell data follows immediately after the packet header
+            if (!connection.ReceiveNonBlocking(cellBuffer->data(), cellBuffer->size())) {
+                // Buffer data not ready yet, return without error
+                LOG_VERBOSE() << "Draw buffer packet header received, but cell data not ready yet" << std::endl;
+                return;
             }
+            LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells" << std::endl;
+        }
+        else if (basePacket->packetType == packet::type::INPUT) {
+            // Input packets are handled elsewhere, ignore them here
+            LOG_VERBOSE() << "Received INPUT packet in handle poll (should be handled by input system)" << std::endl;
+            return;
+        }
+        else if (basePacket->packetType == packet::type::RESIZE) {
+            // Resize packets should be handled elsewhere, ignore them here  
+            LOG_VERBOSE() << "Received RESIZE packet in handle poll (should be handled separately)" << std::endl;
+            return;
+        }
+        else {
+            std::cerr << "Unknown packet type received: " << static_cast<int>(basePacket->packetType) 
+                      << " (raw bytes: " << std::hex;
+            for (int i = 0; i < 8 && i < packet::size; i++) {
+                std::cerr << " 0x" << static_cast<unsigned char>(packetBuffer[i]);
+            }
+            std::cerr << std::dec << ")" << std::endl;
+            errorCount++;
+            return;
         }
 
         // Set the errorCount to zero if everything worked.
@@ -249,7 +282,9 @@ namespace window {
                         try {
                             // Use the atomic guard to safely access the listener and get a connection
                             listener([](tcp::listener& listenerRef){
+                                LOG_VERBOSE() << "Waiting for GGUI client connection..." << std::endl;
                                 tcp::connection conn = listenerRef.Accept();
+                                LOG_VERBOSE() << "Accepted connection from GGUI client" << std::endl;
 
                                 // We will first listen for GGUI to give its own port to establish an personal connection to this specific GGUI client
                                 uint16_t gguiPort;
@@ -258,14 +293,25 @@ namespace window {
                                     return;
                                 }
 
+                                LOG_VERBOSE() << "Received GGUI port: " << gguiPort << std::endl;
+
                                 // Now we can create a new connection with this new port
                                 tcp::connection gguiConnection = tcp::sender::getConnection(gguiPort);
+                                
+                                LOG_VERBOSE() << "Established connection to GGUI on port " << gguiPort << std::endl;
+                                
+                                // Set the connection to non-blocking mode for better performance
+                                if (!gguiConnection.setNonBlocking()) {
+                                    std::cerr << "Warning: Failed to set connection to non-blocking mode" << std::endl;
+                                }
 
                                 // Before going to the next connection, we need to send confirmation back to the GGUI that we have accepted the connection
                                 if (!gguiConnection.Send(&gguiPort)) {
                                     std::cerr << "Failed to send confirmation to GGUI" << std::endl;
                                     return;
                                 }
+
+                                LOG_VERBOSE() << "Sent confirmation to GGUI" << std::endl;
 
                                 // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
                                 types::rectangle windowRectangle = positionToCellCoordinates(position::FULLSCREEN, getPrimaryDisplayId());
@@ -278,17 +324,13 @@ namespace window {
                                 LOG_VERBOSE() << "Sending initial dimensions to GGUI client: " 
                                           << dimensionsInCells.x << "x" << dimensionsInCells.y << " cells" << std::endl;
 
-                                packet::type header = packet::type::RESIZE;
+                                // Create resize packet with data
+                                char packetBuffer[packet::size];
+                                new(packetBuffer) packet::resize::base(types::sVector2(dimensionsInCells));
 
-                                // Send the dimensions in cells to the GGUI client
-                                if (!gguiConnection.Send(&header)) {
+                                // Send the resize packet
+                                if (!gguiConnection.Send<char>(packetBuffer, packet::size)) {
                                     std::cerr << "Failed to send resize packet to GGUI" << std::endl;
-                                    return;
-                                }
-
-                                // Send the dimensions in cells to the GGUI client
-                                if (!gguiConnection.Send(&dimensionsInCells)) {
-                                    std::cerr << "Failed to send dimensions in cells to GGUI" << std::endl;
                                     return;
                                 }
 

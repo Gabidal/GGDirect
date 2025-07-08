@@ -32,17 +32,17 @@ namespace input {
     // ============================================================================
 
     bool KeyboardHandler::initialize(const DeviceInfo& deviceInfo) {
-        currentModifiers = packet::controlKey::UNKNOWN;
+        currentModifiers = packet::input::controlKey::UNKNOWN;
         LOG_INFO() << "Initialized keyboard handler for: " << deviceInfo.name << std::endl;
         return true;
     }
 
     void KeyboardHandler::cleanup() {
-        currentModifiers = packet::controlKey::UNKNOWN;
+        currentModifiers = packet::input::controlKey::UNKNOWN;
         LOG_INFO() << "Cleaned up keyboard handler." << std::endl;
     }
 
-    bool KeyboardHandler::processEvent(const RawEvent& rawEvent, packet::input& processedEvent) {
+    bool KeyboardHandler::processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) {
         if (rawEvent.type != EventType::KEY_PRESS && rawEvent.type != EventType::KEY_RELEASE) {
             return false;
         }
@@ -54,48 +54,48 @@ namespace input {
             case KEY_LEFTSHIFT:
             case KEY_RIGHTSHIFT:
                 if (isPressed) {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::controlKey::SHIFT)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::SHIFT)
                     );
                 } else {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::controlKey::SHIFT)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::SHIFT)
                     );
                 }
                 break;
             case KEY_LEFTCTRL:
             case KEY_RIGHTCTRL:
                 if (isPressed) {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::controlKey::CTRL)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::CTRL)
                     );
                 } else {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::controlKey::CTRL)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::CTRL)
                     );
                 }
                 break;
             case KEY_LEFTALT:
             case KEY_RIGHTALT:
                 if (isPressed) {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::controlKey::ALT)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::ALT)
                     );
                 } else {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::controlKey::ALT)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::ALT)
                     );
                 }
                 break;
             case KEY_LEFTMETA:
             case KEY_RIGHTMETA:
                 if (isPressed) {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::controlKey::SUPER)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::SUPER)
                     );
                 } else {
-                    currentModifiers = static_cast<packet::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::controlKey::SUPER)
+                    currentModifiers = static_cast<packet::input::controlKey>(
+                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::SUPER)
                     );
                 }
                 break;
@@ -103,12 +103,12 @@ namespace input {
 
         // Set pressed state
         if (isPressed) {
-            currentModifiers = static_cast<packet::controlKey>(
-                static_cast<int>(currentModifiers) | static_cast<int>(packet::controlKey::PRESSED_DOWN)
+            currentModifiers = static_cast<packet::input::controlKey>(
+                static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::PRESSED_DOWN)
             );
         } else {
-            currentModifiers = static_cast<packet::controlKey>(
-                static_cast<int>(currentModifiers) & ~static_cast<int>(packet::controlKey::PRESSED_DOWN)
+            currentModifiers = static_cast<packet::input::controlKey>(
+                static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::PRESSED_DOWN)
             );
         }
 
@@ -116,28 +116,28 @@ namespace input {
         
         // Handle special keys
         switch (rawEvent.code) {
-            case KEY_F1: processedEvent.additional = packet::additionalKey::F1; break;
-            case KEY_F2: processedEvent.additional = packet::additionalKey::F2; break;
-            case KEY_F3: processedEvent.additional = packet::additionalKey::F3; break;
-            case KEY_F4: processedEvent.additional = packet::additionalKey::F4; break;
-            case KEY_F5: processedEvent.additional = packet::additionalKey::F5; break;
-            case KEY_F6: processedEvent.additional = packet::additionalKey::F6; break;
-            case KEY_F7: processedEvent.additional = packet::additionalKey::F7; break;
-            case KEY_F8: processedEvent.additional = packet::additionalKey::F8; break;
-            case KEY_F9: processedEvent.additional = packet::additionalKey::F9; break;
-            case KEY_F10: processedEvent.additional = packet::additionalKey::F10; break;
-            case KEY_F11: processedEvent.additional = packet::additionalKey::F11; break;
-            case KEY_F12: processedEvent.additional = packet::additionalKey::F12; break;
-            case KEY_UP: processedEvent.additional = packet::additionalKey::ARROW_UP; break;
-            case KEY_DOWN: processedEvent.additional = packet::additionalKey::ARROW_DOWN; break;
-            case KEY_LEFT: processedEvent.additional = packet::additionalKey::ARROW_LEFT; break;
-            case KEY_RIGHT: processedEvent.additional = packet::additionalKey::ARROW_RIGHT; break;
-            case KEY_HOME: processedEvent.additional = packet::additionalKey::HOME; break;
-            case KEY_END: processedEvent.additional = packet::additionalKey::END; break;
-            case KEY_PAGEUP: processedEvent.additional = packet::additionalKey::PAGE_UP; break;
-            case KEY_PAGEDOWN: processedEvent.additional = packet::additionalKey::PAGE_DOWN; break;
-            case KEY_INSERT: processedEvent.additional = packet::additionalKey::INSERT; break;
-            case KEY_DELETE: processedEvent.additional = packet::additionalKey::DELETE; break;
+            case KEY_F1: processedEvent.additional = packet::input::additionalKey::F1; break;
+            case KEY_F2: processedEvent.additional = packet::input::additionalKey::F2; break;
+            case KEY_F3: processedEvent.additional = packet::input::additionalKey::F3; break;
+            case KEY_F4: processedEvent.additional = packet::input::additionalKey::F4; break;
+            case KEY_F5: processedEvent.additional = packet::input::additionalKey::F5; break;
+            case KEY_F6: processedEvent.additional = packet::input::additionalKey::F6; break;
+            case KEY_F7: processedEvent.additional = packet::input::additionalKey::F7; break;
+            case KEY_F8: processedEvent.additional = packet::input::additionalKey::F8; break;
+            case KEY_F9: processedEvent.additional = packet::input::additionalKey::F9; break;
+            case KEY_F10: processedEvent.additional = packet::input::additionalKey::F10; break;
+            case KEY_F11: processedEvent.additional = packet::input::additionalKey::F11; break;
+            case KEY_F12: processedEvent.additional = packet::input::additionalKey::F12; break;
+            case KEY_UP: processedEvent.additional = packet::input::additionalKey::ARROW_UP; break;
+            case KEY_DOWN: processedEvent.additional = packet::input::additionalKey::ARROW_DOWN; break;
+            case KEY_LEFT: processedEvent.additional = packet::input::additionalKey::ARROW_LEFT; break;
+            case KEY_RIGHT: processedEvent.additional = packet::input::additionalKey::ARROW_RIGHT; break;
+            case KEY_HOME: processedEvent.additional = packet::input::additionalKey::HOME; break;
+            case KEY_END: processedEvent.additional = packet::input::additionalKey::END; break;
+            case KEY_PAGEUP: processedEvent.additional = packet::input::additionalKey::PAGE_UP; break;
+            case KEY_PAGEDOWN: processedEvent.additional = packet::input::additionalKey::PAGE_DOWN; break;
+            case KEY_INSERT: processedEvent.additional = packet::input::additionalKey::INSERT; break;
+            case KEY_DELETE: processedEvent.additional = packet::input::additionalKey::DELETE; break;
             default:
                 // Handle ASCII keys
                 if (rawEvent.code >= KEY_A && rawEvent.code <= KEY_Z) {
@@ -155,7 +155,7 @@ namespace input {
                 } else if (rawEvent.code == KEY_ESC) {
                     processedEvent.key = 27; // ESC
                 } else {
-                    processedEvent.additional = packet::additionalKey::UNKNOWN;
+                    processedEvent.additional = packet::input::additionalKey::UNKNOWN;
                 }
                 break;
         }
@@ -188,7 +188,7 @@ namespace input {
         LOG_INFO() << "Cleaned up mouse handler." << std::endl;
     }
 
-    bool MouseHandler::processEvent(const RawEvent& rawEvent, packet::input& processedEvent) {
+    bool MouseHandler::processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) {
         processedEvent.mouse = currentPosition;
         
         switch (rawEvent.type) {
@@ -205,27 +205,27 @@ namespace input {
             case EventType::MOUSE_RELEASE:
                 {
                     bool isPressed = (rawEvent.type == EventType::MOUSE_PRESS);
-                    packet::additionalKey mouseKey = packet::additionalKey::UNKNOWN;
+                    packet::input::additionalKey mouseKey = packet::input::additionalKey::UNKNOWN;
                     
                     switch (rawEvent.code) {
                         case BTN_LEFT:
-                            mouseKey = packet::additionalKey::LEFT_CLICK;
+                            mouseKey = packet::input::additionalKey::LEFT_CLICK;
                             buttonStates[0] = isPressed;
                             break;
                         case BTN_RIGHT:
-                            mouseKey = packet::additionalKey::RIGHT_CLICK;
+                            mouseKey = packet::input::additionalKey::RIGHT_CLICK;
                             buttonStates[1] = isPressed;
                             break;
                         case BTN_MIDDLE:
-                            mouseKey = packet::additionalKey::MIDDLE_CLICK;
+                            mouseKey = packet::input::additionalKey::MIDDLE_CLICK;
                             buttonStates[2] = isPressed;
                             break;
                     }
                     
                     processedEvent.additional = mouseKey;
                     if (isPressed) {
-                        processedEvent.modifiers = static_cast<packet::controlKey>(
-                            static_cast<int>(processedEvent.modifiers) | static_cast<int>(packet::controlKey::PRESSED_DOWN)
+                        processedEvent.modifiers = static_cast<packet::input::controlKey>(
+                            static_cast<int>(processedEvent.modifiers) | static_cast<int>(packet::input::controlKey::PRESSED_DOWN)
                         );
                     }
                 }
@@ -234,7 +234,7 @@ namespace input {
             case EventType::MOUSE_SCROLL:
                 if (rawEvent.code == REL_WHEEL) {
                     processedEvent.additional = (rawEvent.value > 0) ? 
-                        packet::additionalKey::SCROLL_UP : packet::additionalKey::SCROLL_DOWN;
+                        packet::input::additionalKey::SCROLL_UP : packet::input::additionalKey::SCROLL_DOWN;
                 }
                 break;
                 
@@ -268,7 +268,7 @@ namespace input {
         LOG_INFO() << "Cleaned up touchpad handler." << std::endl;
     }
 
-    bool TouchpadHandler::processEvent(const RawEvent& rawEvent, packet::input& processedEvent) {
+    bool TouchpadHandler::processEvent(const RawEvent& rawEvent, packet::input::base& processedEvent) {
         processedEvent.mouse = currentPosition;
         
         switch (rawEvent.type) {
@@ -283,15 +283,15 @@ namespace input {
                 
             case EventType::TOUCH_START:
                 isTouching = true;
-                processedEvent.additional = packet::additionalKey::LEFT_CLICK;
-                processedEvent.modifiers = static_cast<packet::controlKey>(
-                    static_cast<int>(processedEvent.modifiers) | static_cast<int>(packet::controlKey::PRESSED_DOWN)
+                processedEvent.additional = packet::input::additionalKey::LEFT_CLICK;
+                processedEvent.modifiers = static_cast<packet::input::controlKey>(
+                    static_cast<int>(processedEvent.modifiers) | static_cast<int>(packet::input::controlKey::PRESSED_DOWN)
                 );
                 break;
                 
             case EventType::TOUCH_END:
                 isTouching = false;
-                processedEvent.additional = packet::additionalKey::LEFT_CLICK;
+                processedEvent.additional = packet::input::additionalKey::LEFT_CLICK;
                 break;
                 
             default:
@@ -460,7 +460,7 @@ namespace input {
         deviceManager = manager;
     }
 
-    void EventProcessor::setEventCallback(std::function<void(const packet::input&)> callback) {
+    void EventProcessor::setEventCallback(std::function<void(const packet::input::base&)> callback) {
         eventCallback = std::move(callback);
     }
 
@@ -553,7 +553,7 @@ namespace input {
             return;
         }
         
-        packet::input processedEvent;
+        packet::input::base processedEvent;
         if (handler->processEvent(rawEvent, processedEvent)) {
             eventCallback(processedEvent);
         }
@@ -589,7 +589,7 @@ namespace input {
                     ep.setDeviceManager(&dm);
                 });
                 
-                ep.setEventCallback([](const packet::input& inputEvent) {
+                ep.setEventCallback([](const packet::input::base& inputEvent) {
                     processInputEvent(inputEvent);
                 });
                 
@@ -658,23 +658,26 @@ namespace input {
             return result;
         }
 
-        void processInputEvent(const packet::input& inputEvent) {
+        void processInputEvent(const packet::input::base& inputEvent) {
             sendInputToFocusedHandle(inputEvent);
         }
 
-        void sendInputToFocusedHandle(const packet::input& inputEvent) {
+        void sendInputToFocusedHandle(const packet::input::base& inputEvent) {
             if (focusedHandle) {
                 // Cast to window::handle* and send the input event
                 window::handle* handle = static_cast<window::handle*>(focusedHandle);
                 if (handle->connection.getHandle() >= 0) {
-                    packet::type packetType = packet::type::INPUT;
+                    // Create packet buffer and copy input event into it
+                    char packetBuffer[packet::size];
+                    packet::input::base* inputPacket = new(packetBuffer) packet::input::base();
                     
-                    if (!handle->connection.Send(&packetType, 1)) {
-                        LOG_ERROR() << "Failed to send packet type to focused handle" << std::endl;
-                        return;
-                    }
+                    // Copy the input event data
+                    inputPacket->mouse = inputEvent.mouse;
+                    inputPacket->modifiers = inputEvent.modifiers;
+                    inputPacket->additional = inputEvent.additional;
+                    inputPacket->key = inputEvent.key;
                     
-                    if (!handle->connection.Send(&inputEvent, 1)) {
+                    if (!handle->connection.Send<char>(packetBuffer, packet::size)) {
                         LOG_ERROR() << "Failed to send input event to focused handle" << std::endl;
                         return;
                     }

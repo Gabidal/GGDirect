@@ -11,11 +11,11 @@
 
 
 namespace window {
-
+    // In GGDirect, we dont give free positions to each window, instead we put them into interchangable predefined presets, defined as:
     enum class position {
         FULLSCREEN,
-        LEFT, RIGHT,
-        TOP, BOTTOM,
+        LEFT, RIGHT,    // anchored half of the screen either to the right or left
+        TOP, BOTTOM,    // anchored half of the screen either at the top or at the bottom
     };
 
     // Forward declaration for the handle class

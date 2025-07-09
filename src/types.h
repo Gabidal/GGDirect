@@ -2,6 +2,8 @@
 #define _TYPES_H_
 
 #include <cstdint>
+#include <algorithm>
+#include <iterator>
 
 // Forward declarations to avoid circular includes
 namespace font {
@@ -135,6 +137,29 @@ namespace types {
         RGB textColor;
         RGB backgroundColor;
     };
+
+    inline uint32_t toXRGB8888(const RGB& color) {
+        // Convert RGB to XRGB8888 format
+        return (color.r << 16) | (color.g << 8) | color.b;
+    }
+
+    inline bool operator==(const RGB& a, const RGB& b) {
+        return a.r == b.r && a.g == b.g && a.b == b.b;
+    }
+
+    inline bool operator==(const Cell& a, const Cell& b) {
+        return  a.textColor == b.textColor &&
+                a.backgroundColor == b.backgroundColor && 
+                ((uint64_t&)a.utf) == ((uint64_t&)b.utf); // Compare utf as a 64-bit integer for fast comparison
+    }
+
+    inline bool operator!=(const RGB& a, const RGB& b) {
+        return !(a == b);
+    }
+
+    inline bool operator!=(const Cell& a, const Cell& b) {
+        return !(a == b);
+    }
 }
 
 #endif

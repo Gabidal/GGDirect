@@ -9,8 +9,66 @@
 #include <memory>
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 
 namespace renderer {
+    
+    // Optimized cell cache with pre-converted framebuffer data
+    struct OptimizedCellCache {
+        types::Cell cellID;                    // Cell fingerprint for O(1) comparison
+        std::vector<uint32_t> XRGBPixels;      // Pre-converted XRGB8888 data
+        int width;
+        int height;
+        bool isValid;
+        
+        OptimizedCellCache() : width(0), height(0), isValid(false) {}
+        
+        // Fast initialization with pre-allocated size
+        void initialize(int w, int h) {
+            width = w;
+            height = h;
+            XRGBPixels.resize(w * h);
+            isValid = false;
+        }
+        
+        // Convert RGB cell data to XRGB8888 format for direct framebuffer copying
+        void convertFromRGB(const font::cellRenderData& cellData) {
+            if (XRGBPixels.size() != static_cast<size_t>(cellData.width * cellData.height)) {
+                XRGBPixels.resize(cellData.width * cellData.height);
+            }
+            
+            const size_t pixelCount = cellData.pixels.size();
+            for (size_t i = 0; i < pixelCount; i++) {
+                XRGBPixels[i] = types::toXRGB8888(cellData.pixels[i]);
+            }
+            
+            width = cellData.width;
+            height = cellData.height;
+            isValid = true;
+        }
+    };
+    
+    // Fast framebuffer blitting using memcpy for row-based operations
+    inline void blitCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, 
+                                     int startX, int startY, const OptimizedCellCache& cache) {
+        // Bounds checking
+        if (startX >= fbWidth || startY >= fbHeight || !cache.isValid) {
+            return;
+        }
+        
+        const int maxCopyWidth = std::min(cache.width, fbWidth - startX);
+        const int maxCopyHeight = std::min(cache.height, fbHeight - startY);
+        
+        // Memory operation batching - copy entire rows with memcpy
+        for (int y = 0; y < maxCopyHeight; y++) {
+            const int srcOffset = y * cache.width;
+            const int dstOffset = (startY + y) * fbWidth + startX;
+            
+            // Fast row-based copy using memcpy instead of pixel-by-pixel
+            std::memcpy(&fbBuffer[dstOffset], &cache.XRGBPixels[srcOffset], 
+                       maxCopyWidth * sizeof(uint32_t));
+        }
+    }
     
     // Renderer state
     static std::shared_ptr<display::frameBuffer> currentFramebuffer;
@@ -21,41 +79,41 @@ namespace renderer {
     static bool rendererInitialized = false;
     static bool shouldExit = false;  // Flag to control renderer thread exit
     
-    // Forward declaration
+    // Forward declaration - kept for backward compatibility
     void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, int startX, int startY, const font::cellRenderData& cellData);
     
     // Initialize display and font systems
     void init() {
         // Initialize display system
         if (!display::manager::initialize()) {
-            std::cerr << "Failed to initialize display system" << std::endl;
+            LOG_ERROR() << "Failed to initialize display system" << std::endl;
             return;
         }
         
         // Initialize font system
         if (!font::manager::initialize()) {
-            std::cerr << "Failed to initialize font system" << std::endl;
+            LOG_ERROR() << "Failed to initialize font system" << std::endl;
             return;
         }
         
         // Set up display resources
         auto availableDisplays = display::manager::getAvailableDisplays();
         if (availableDisplays.empty()) {
-            std::cerr << "No available displays found" << std::endl;
+            LOG_ERROR() << "No available displays found" << std::endl;
             return;
         }
         
         // Use the first available display
         primaryConnector = availableDisplays[0];
         if (!primaryConnector->isConnected()) {
-            std::cerr << "Primary display is not connected" << std::endl;
+            LOG_ERROR() << "Primary display is not connected" << std::endl;
             return;
         }
         
         // Get preferred mode
         auto modes = primaryConnector->getAvailableModes();
         if (modes.empty()) {
-            std::cerr << "No available modes for primary display" << std::endl;
+            LOG_ERROR() << "No available modes for primary display" << std::endl;
             return;
         }
         
@@ -63,7 +121,7 @@ namespace renderer {
         
         // Enable the display
         if (!display::manager::enableDisplay(primaryConnector, *currentMode)) {
-            std::cerr << "Failed to enable primary display" << std::endl;
+            LOG_ERROR() << "Failed to enable primary display" << std::endl;
             return;
         }
         
@@ -75,13 +133,13 @@ namespace renderer {
         );
         
         if (!currentFramebuffer) {
-            std::cerr << "Failed to create framebuffer" << std::endl;
+            LOG_ERROR() << "Failed to create framebuffer" << std::endl;
             return;
         }
         
         // Map the framebuffer for CPU access
         if (!currentFramebuffer->map()) {
-            std::cerr << "Failed to map framebuffer" << std::endl;
+            LOG_ERROR() << "Failed to map framebuffer" << std::endl;
             return;
         }
         
@@ -110,14 +168,14 @@ namespace renderer {
                     for (int i = static_cast<int>(self.size()) - 1; i >= 0; i--) {
                         if (self[i].connection.isClosed()) {
                             // If the connection is closed, remove the handle
-                            std::cerr << "Removing handle " << i << " due to closed connection" << std::endl;
+                            LOG_ERROR() << "Removing handle " << i << " due to closed connection" << std::endl;
                             self.erase(self.begin() + i);
                             continue;
                         }
 
                         if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
                             // This handle has given us way too many problems, remove it
-                            std::cerr << "Removing handle " << i << " due to excessive errors (" << 
+                            LOG_ERROR() << "Removing handle " << i << " due to excessive errors (" << 
                                          self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << ")" << std::endl;
                             self.erase(self.begin() + i);
                             continue;
@@ -225,18 +283,18 @@ namespace renderer {
 
         // Additional safety checks
         if (windowCellRect.size.x <= 0 || windowCellRect.size.y <= 0) {
-            std::cerr << "Invalid cell rectangle size: " << windowCellRect.size.x << "x" << windowCellRect.size.y << std::endl;
+            LOG_ERROR() << "Invalid cell rectangle size: " << windowCellRect.size.x << "x" << windowCellRect.size.y << std::endl;
             return false;
         }
 
         // Verify the buffer size matches the expected cell dimensions
         size_t expectedSize = static_cast<size_t>(windowCellRect.size.x) * static_cast<size_t>(windowCellRect.size.y);
         if (handle->cellBuffer->size() != expectedSize) {
-            std::cerr << "Buffer size mismatch: expected " << expectedSize << " cells (" 
-                      << windowCellRect.size.x << "x" << windowCellRect.size.y << "), got " 
-                      << handle->cellBuffer->size() << std::endl;
-            std::cerr << "Pixel coords: " << windowPixelRect.size.x << "x" << windowPixelRect.size.y << std::endl;
-            std::cerr << "Cell coords: " << windowCellRect.size.x << "x" << windowCellRect.size.y << std::endl;
+            LOG_ERROR() << "Buffer size mismatch: expected " << expectedSize << " cells (" 
+                        << windowCellRect.size.x << "x" << windowCellRect.size.y << "), got " 
+                        << handle->cellBuffer->size() << std::endl;
+            LOG_ERROR() << "Pixel coords: " << windowPixelRect.size.x << "x" << windowPixelRect.size.y << std::endl;
+            LOG_ERROR() << "Cell coords: " << windowCellRect.size.x << "x" << windowCellRect.size.y << std::endl;
             return false;
         }
 
@@ -276,13 +334,18 @@ namespace renderer {
 
         auto font = handle->getFont();
 
-        font::cellRenderData cellData = {
+        // Optimized cell cache using pre-converted XRGB8888 format
+        static OptimizedCellCache cellCache;
+        cellCache.initialize(static_cast<int>(cellWidth * handle->zoom), 
+                           static_cast<int>(cellHeight * handle->zoom));
+        
+        // Temporary buffer for font rendering (only used on cache miss)
+        font::cellRenderData tempRenderBuffer{
             static_cast<int>(cellWidth * handle->zoom),
             static_cast<int>(cellHeight * handle->zoom),
             {}
         };
-
-        cellData.pixels.resize(cellData.width * cellData.height);
+        tempRenderBuffer.pixels.resize(tempRenderBuffer.width * tempRenderBuffer.height);
         
         // Render each cell using cell coordinates for iteration
         for (int cellY = 0; cellY < windowCellRect.size.y; cellY++) {
@@ -291,7 +354,7 @@ namespace renderer {
                 
                 // Bounds check for cell buffer access
                 if (cellIndex < 0 || static_cast<size_t>(cellIndex) >= handle->cellBuffer->size()) {
-                    std::cerr << "Cell index out of bounds: " << cellIndex << " (buffer size: " << handle->cellBuffer->size() << ")" << std::endl;
+                    LOG_ERROR() << "Cell index out of bounds: " << cellIndex << " (buffer size: " << handle->cellBuffer->size() << ")" << std::endl;
                     continue;
                 }
                 
@@ -305,15 +368,24 @@ namespace renderer {
                 if (pixelX >= maxX || pixelY >= maxY) {
                     continue;
                 }
-                
-                std::fill(cellData.pixels.begin(), cellData.pixels.end(), cell.backgroundColor);
 
-                if (font) {
-                    cellData = font->renderCell(cell, cellData, handle->zoom);
+                // Smart fingerprint-based lookup - O(1) cell comparison
+                if (!cellCache.isValid || cellCache.cellID != cell) {
+                    // Cache miss - need to render cell
+                    std::fill(tempRenderBuffer.pixels.begin(), tempRenderBuffer.pixels.end(), cell.backgroundColor);
+                    
+                    if (font) {
+                        tempRenderBuffer = font->renderCell(cell, tempRenderBuffer, handle->zoom);
+                    }
+                    
+                    // Format pre-conversion - convert RGB to XRGB8888 during caching
+                    cellCache.convertFromRGB(tempRenderBuffer);
+                    cellCache.cellID = cell;
                 }
                 
-                // Copy cell pixels to framebuffer
-                renderCellToFramebuffer(fbBuffer, currentFramebuffer->getPitch() / sizeof(uint32_t), currentFramebuffer->getHeight(), pixelX, pixelY, cellData);
+                // Memory operation batching - fast framebuffer blitting
+                blitCellToFramebuffer(fbBuffer, currentFramebuffer->getPitch() / sizeof(uint32_t), 
+                                    currentFramebuffer->getHeight(), pixelX, pixelY, cellCache);
                 didRender = true;
                 renderedCells++;
             }
@@ -330,26 +402,44 @@ namespace renderer {
     }
     
     void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, int startX, int startY, const font::cellRenderData& cellData) {
+        // Legacy function - kept for backward compatibility
+        // For better performance, use the optimized caching system in renderHandle()
         
-        for (int y = 0; y < cellData.height; y++) {
-            for (int x = 0; x < cellData.width; x++) {
-                int fbX = startX + x;
-                int fbY = startY + y;
+        // Bounds checking
+        if (startX >= fbWidth || startY >= fbHeight) {
+            return;
+        }
+        
+        const int maxCopyWidth = std::min(cellData.width, fbWidth - startX);
+        const int maxCopyHeight = std::min(cellData.height, fbHeight - startY);
+        
+        // Optimize by using row-based copying when possible
+        if (maxCopyWidth == cellData.width) {
+            // Can copy entire rows efficiently
+            for (int y = 0; y < maxCopyHeight; y++) {
+                const int srcOffset = y * cellData.width;
+                const int dstOffset = (startY + y) * fbWidth + startX;
                 
-                // Bounds check
-                if (fbX >= fbWidth || fbY >= fbHeight) {
-                    continue;
+                // Convert RGB to XRGB8888 for the entire row
+                for (int x = 0; x < maxCopyWidth; x++) {
+                    const types::RGB& pixel = cellData.pixels[srcOffset + x];
+                    fbBuffer[dstOffset + x] = (pixel.r << 16) | (pixel.g << 8) | pixel.b;
                 }
-                
-                int cellPixelIndex = y * cellData.width + x;
-                int fbPixelIndex = fbY * fbWidth + fbX;
-                
-                if (static_cast<size_t>(cellPixelIndex) < cellData.pixels.size()) {
-                    const types::RGB& pixel = cellData.pixels[cellPixelIndex];
+            }
+        } else {
+            // Fallback to pixel-by-pixel for partial rows
+            for (int y = 0; y < maxCopyHeight; y++) {
+                for (int x = 0; x < maxCopyWidth; x++) {
+                    int fbX = startX + x;
+                    int fbY = startY + y;
                     
-                    // Convert RGB to XRGB8888 format
-                    uint32_t color = (pixel.r << 16) | (pixel.g << 8) | pixel.b;
-                    fbBuffer[fbPixelIndex] = color;
+                    int cellPixelIndex = y * cellData.width + x;
+                    int fbPixelIndex = fbY * fbWidth + fbX;
+                    
+                    if (static_cast<size_t>(cellPixelIndex) < cellData.pixels.size()) {
+                        const types::RGB& pixel = cellData.pixels[cellPixelIndex];
+                        fbBuffer[fbPixelIndex] = (pixel.r << 16) | (pixel.g << 8) | pixel.b;
+                    }
                 }
             }
         }

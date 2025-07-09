@@ -22,8 +22,7 @@ namespace renderer {
     static bool shouldExit = false;  // Flag to control renderer thread exit
     
     // Forward declaration
-    void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight,
-                                int startX, int startY, const font::cellRenderData& cellData);
+    void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, int startX, int startY, const font::cellRenderData& cellData);
     
     // Initialize display and font systems
     void init() {
@@ -274,6 +273,16 @@ namespace renderer {
         
         bool didRender = false;
         int renderedCells = 0;
+
+        auto font = handle->getFont();
+
+        font::cellRenderData cellData = {
+            static_cast<int>(cellWidth * handle->zoom),
+            static_cast<int>(cellHeight * handle->zoom),
+            {}
+        };
+
+        cellData.pixels.resize(cellData.width * cellData.height);
         
         // Render each cell using cell coordinates for iteration
         for (int cellY = 0; cellY < windowCellRect.size.y; cellY++) {
@@ -297,8 +306,11 @@ namespace renderer {
                     continue;
                 }
                 
-                // Render the cell using font system
-                font::cellRenderData cellData = font::manager::renderCell(cell, baseCellWidth, baseCellHeight, handle->zoom);
+                std::fill(cellData.pixels.begin(), cellData.pixels.end(), cell.backgroundColor);
+
+                if (font) {
+                    cellData = font->renderCell(cell, cellData, handle->zoom);
+                }
                 
                 // Copy cell pixels to framebuffer
                 renderCellToFramebuffer(fbBuffer, currentFramebuffer->getPitch() / sizeof(uint32_t), currentFramebuffer->getHeight(), pixelX, pixelY, cellData);
@@ -317,8 +329,7 @@ namespace renderer {
         renderHandle(handle);
     }
     
-    void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight,
-                                int startX, int startY, const font::cellRenderData& cellData) {
+    void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, int startX, int startY, const font::cellRenderData& cellData) {
         
         for (int y = 0; y < cellData.height; y++) {
             for (int x = 0; x < cellData.width; x++) {

@@ -247,6 +247,20 @@ namespace window {
         errorCount = 0;
     }
 
+    font::font* handle::getFont() const {
+        if (customFont)
+            return customFont.get();
+        
+        auto font = font::manager::getFont(font::manager::configurableFontName);
+
+        if (!font) {
+            font = font::manager::getDefaultFont();
+        }
+
+        return font.get();
+    }
+
+
     namespace manager {
         // Define the global variables
         atomic::guard<std::vector<handle>> handles;

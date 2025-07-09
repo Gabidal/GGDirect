@@ -21,9 +21,9 @@ namespace font {
     };
 
     struct cellRenderData {
-        std::vector<types::RGB> pixels; // RGB pixel buffer for the cell
         int width;
         int height;
+        std::vector<types::RGB> pixels; // RGB pixel buffer for the cell
     };
 
     class font {
@@ -42,7 +42,7 @@ namespace font {
         bool loadGlyph(char32_t codepoint);
         
         // Cell rendering - main function for rendering cells
-        cellRenderData renderCell(const types::Cell& cell, int cellWidth, int cellHeight, float zoom = 1.0f);
+        cellRenderData renderCell(const types::Cell& cell, cellRenderData& cellData, float zoom = 1.0f);
         
         // Utility functions
         int getFontSize() const { return fontSize; }
@@ -92,9 +92,6 @@ namespace font {
         // Configuration
         extern void setConfigurableFontName(const std::string& fontName);
         extern std::string getConfigurableFontName();
-        
-        // Cell rendering - high-level interface
-        extern cellRenderData renderCell(const types::Cell& cell, int cellWidth, int cellHeight, float zoom = 1.0f);
         
         // Default cell dimensions
         extern int getDefaultCellWidth();

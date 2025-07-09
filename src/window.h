@@ -4,6 +4,7 @@
 #include "types.h"
 #include "tcp.h"
 #include "guard.h"
+#include "font.h"
 
 #include <vector>
 #include <map>
@@ -58,6 +59,8 @@ namespace window {
         // Display management - track which display this handle is positioned on
         uint32_t displayId;  // ID of the display this handle is associated with
 
+        std::unique_ptr<font::font> customFont = nullptr;
+
         handle(tcp::connection&& conn) : preset(position::FULLSCREEN), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>()), displayId(0) {}
 
         ~handle() {
@@ -75,6 +78,8 @@ namespace window {
 
         // polls from GGUI dimensions and cell buffer
         void poll();
+
+        font::font* getFont() const;
         
         // Display management methods
         void setDisplayId(uint32_t newDisplayId) { displayId = newDisplayId; }

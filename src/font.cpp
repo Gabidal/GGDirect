@@ -243,21 +243,7 @@ namespace font {
         return true;
     }
 
-    cellRenderData font::renderCell(const types::Cell& cell, int cellWidth, int cellHeight, float zoom) {
-        cellRenderData cellData;
-        
-        // Calculate actual cell dimensions with zoom
-        int actualWidth = static_cast<int>(cellWidth * zoom);
-        int actualHeight = static_cast<int>(cellHeight * zoom);
-        
-        cellData.width = actualWidth;
-        cellData.height = actualHeight;
-        cellData.pixels.resize(actualWidth * actualHeight);
-        
-        // Fill background
-        types::RGB backgroundColor = cell.backgroundColor;
-        std::fill(cellData.pixels.begin(), cellData.pixels.end(), backgroundColor);
-        
+    cellRenderData font::renderCell(const types::Cell& cell, cellRenderData& cellData, float zoom) {
         // Convert UTF-8 to UTF-32
         char32_t codepoint = utf8ToUtf32(cell.utf);
         
@@ -273,15 +259,12 @@ namespace font {
         }
         
         // Render glyph to cell
-        renderGlyphToCell(glyphData, cellData, cell.textColor, 
-                         actualWidth, actualHeight, zoom);
+        renderGlyphToCell(glyphData, cellData, cell.textColor, cellData.width, cellData.height, zoom);
         
         return cellData;
     }
 
-    void font::renderGlyphToCell(const glyph& glyph, cellRenderData& cellData, 
-                                const types::RGB& foreground,
-                                int cellWidth, int cellHeight, float zoom) {
+    void font::renderGlyphToCell(const glyph& glyph, cellRenderData& cellData, const types::RGB& foreground, int cellWidth, int cellHeight, float zoom) {
         
         if (glyph.bitmap.empty()) {
             return;
@@ -506,25 +489,6 @@ namespace font {
 
         std::string getConfigurableFontName() {
             return configurableFontName;
-        }
-
-        cellRenderData renderCell(const types::Cell& cell, int cellWidth, int cellHeight, float zoom) {
-            auto font = getFont(configurableFontName);
-            if (!font) {
-                font = getDefaultFont();
-            }
-            
-            if (font) {
-                return font->renderCell(cell, cellWidth, cellHeight, zoom);
-            }
-            
-            // Return empty cell data if no font available
-            cellRenderData cellData;
-            cellData.width = static_cast<int>(cellWidth * zoom);
-            cellData.height = static_cast<int>(cellHeight * zoom);
-            cellData.pixels.resize(cellData.width * cellData.height);
-            std::fill(cellData.pixels.begin(), cellData.pixels.end(), cell.backgroundColor);
-            return cellData;
         }
 
         int getDefaultCellWidth() {

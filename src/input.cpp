@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <fstream>
 #include <chrono>
+#include <future>
 #include <linux/input.h>
 #include <linux/input-event-codes.h>
 #include <sys/ioctl.h>
@@ -479,10 +480,25 @@ namespace input {
             return;
         }
         
+        LOG_VERBOSE() << "Stopping input event processor..." << std::endl;
         isRunning = false;
         
         if (processingThread.joinable()) {
-            processingThread.join();
+            // Use a future to implement a timeout for the join operation
+            auto future = std::async(std::launch::async, [this]() {
+                processingThread.join();
+            });
+            
+            // Wait for the thread to finish with a timeout
+            auto status = future.wait_for(std::chrono::milliseconds(200));
+            
+            if (status == std::future_status::timeout) {
+                // Thread didn't finish in time, we need to detach it
+                LOG_VERBOSE() << "Input event processor thread didn't respond to stop signal in time, detaching..." << std::endl;
+                processingThread.detach();
+            } else {
+                LOG_VERBOSE() << "Input event processor thread finished cleanly." << std::endl;
+            }
         }
         
         LOG_INFO() << "Input event processor stopped." << std::endl;
@@ -495,6 +511,11 @@ namespace input {
             auto devices = deviceManager->getActiveDevices();
             
             for (const auto& device : devices) {
+                // Check if we should exit early
+                if (!isRunning) {
+                    break;
+                }
+                
                 if (device.fd < 0) continue;
                 
                 fd_set readfds;
@@ -539,8 +560,15 @@ namespace input {
                 }
             }
             
+            // Check again before sleeping
+            if (!isRunning) {
+                break;
+            }
+            
             std::this_thread::sleep_for(pollInterval);
         }
+        
+        LOG_VERBOSE() << "Input event processor polling thread exiting..." << std::endl;
     }
 
     void EventProcessor::processRawEvent(const RawEvent& rawEvent) {

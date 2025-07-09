@@ -77,7 +77,7 @@ namespace window {
         
         // Check if we have any active displays
         if (display::manager::activeDisplays.empty()) {
-            std::cerr << "No active displays available for window positioning" << std::endl;
+            LOG_ERROR() << "No active displays available for window positioning" << std::endl;
             // Return a default small window if no displays are available
             return {{0, 0}, {800, 600}};
         }
@@ -87,7 +87,7 @@ namespace window {
         
         // Log if we're falling back to a different display
         if (displayId != 0 && !isValidDisplayId(displayId)) {
-            std::cerr << "Display ID " << displayId << " not found, using primary display" << std::endl;
+            LOG_ERROR() << "Display ID " << displayId << " not found, using primary display" << std::endl;
         }
 
         // Calculate position based on the preset (in pixels)
@@ -124,7 +124,7 @@ namespace window {
         int cellHeight = font::manager::getDefaultCellHeight();
         
         if (cellWidth <= 0 || cellHeight <= 0) {
-            std::cerr << "Invalid cell dimensions: " << cellWidth << "x" << cellHeight << std::endl;
+            LOG_ERROR() << "Invalid cell dimensions: " << cellWidth << "x" << cellHeight << std::endl;
             // Return a reasonable default in cells
             return {{0, 0}, {80, 24}};
         }
@@ -175,12 +175,12 @@ namespace window {
 
         // Now we'll get the buffer data from the GGUI client.
         if (!cellBuffer || cellBuffer->empty()) {
-            std::cerr << "Cell buffer is invalid or empty" << std::endl;
+            LOG_ERROR() << "Cell buffer is invalid or empty" << std::endl;
             errorCount++;
             return;
         }
 
-        // Receive packet using the new buffered method
+        // Try to receive a packet header first
         char packetBuffer[packet::size];
         
         if (!connection.ReceivePacketNonBlocking(packetBuffer, packet::size)) {
@@ -207,16 +207,16 @@ namespace window {
                 connection.close();
                 return;  // Skip to the next handle
             } else {
-                std::cerr << "Unknown notify flag received: " << static_cast<int>(notifyPacket->notifyType) << std::endl;
+                LOG_ERROR() << "Unknown notify flag received: " << static_cast<int>(notifyPacket->notifyType) << std::endl;
                 errorCount++;
                 return;  // Skip to the next handle
             }
         }
         else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
-            // This is a draw buffer packet, receive the cell buffer data
-            // For DRAW_BUFFER packets, the cell data follows immediately after the packet header
-            if (!connection.ReceiveNonBlocking(cellBuffer->data(), cellBuffer->size())) {
-                // Buffer data not ready yet, return without error
+            // This is a draw buffer packet, the cell data follows immediately after the packet header
+            // We need to receive the cell buffer data as a separate packet to avoid buffer mixing issues
+            if (!connection.ReceivePacketNonBlocking(cellBuffer->data(), cellBuffer->size())) {
+                // Cell buffer data not ready yet, return without error
                 LOG_VERBOSE() << "Draw buffer packet header received, but cell data not ready yet" << std::endl;
                 return;
             }
@@ -233,12 +233,11 @@ namespace window {
             return;
         }
         else {
-            std::cerr << "Unknown packet type received: " << static_cast<int>(basePacket->packetType) 
-                      << " (raw bytes: " << std::hex;
+            LOG_ERROR() << "Unknown packet type received: " << static_cast<int>(basePacket->packetType) << " (raw bytes: " << std::hex;
             for (int i = 0; i < 8 && i < packet::size; i++) {
-                std::cerr << " 0x" << static_cast<unsigned char>(packetBuffer[i]);
+                LOG_ERROR() << " 0x" << static_cast<unsigned char>(packetBuffer[i]);
             }
-            std::cerr << std::dec << ")" << std::endl;
+            LOG_ERROR() << std::dec << ")" << std::endl;
             errorCount++;
             return;
         }
@@ -321,7 +320,7 @@ namespace window {
                                     // We will first listen for GGUI to give its own port to establish an personal connection to this specific GGUI client
                                 uint16_t gguiPort;
                                 if (!conn.Receive(&gguiPort)) {
-                                    std::cerr << "Failed to receive GGUI port" << std::endl;
+                                    LOG_ERROR() << "Failed to receive GGUI port" << std::endl;
                                     return;
                                 }
 
@@ -334,12 +333,12 @@ namespace window {
                                 
                                 // Set the connection to non-blocking mode for better performance
                                 if (!gguiConnection.setNonBlocking()) {
-                                    std::cerr << "Warning: Failed to set connection to non-blocking mode" << std::endl;
+                                    LOG_ERROR() << "Warning: Failed to set connection to non-blocking mode" << std::endl;
                                 }
 
                                 // Before going to the next connection, we need to send confirmation back to the GGUI that we have accepted the connection
                                 if (!gguiConnection.Send(&gguiPort)) {
-                                    std::cerr << "Failed to send confirmation to GGUI" << std::endl;
+                                    LOG_ERROR() << "Failed to send confirmation to GGUI" << std::endl;
                                     return;
                                 }
 
@@ -358,11 +357,13 @@ namespace window {
 
                                 // Create resize packet with data
                                 char packetBuffer[packet::size];
-                                new(packetBuffer) packet::resize::base(types::sVector2(dimensionsInCells));
+                                packet::resize::base newsize{types::sVector2{dimensionsInCells}};
+                                // we write the inform into the packet buffer
+                                memcpy(packetBuffer, &newsize, sizeof(newsize));
 
                                 // Send the resize packet
-                                if (!gguiConnection.Send<char>(packetBuffer, packet::size)) {
-                                    std::cerr << "Failed to send resize packet to GGUI" << std::endl;
+                                if (!gguiConnection.Send(packetBuffer, packet::size)) {
+                                    LOG_ERROR() << "Failed to send resize packet to GGUI" << std::endl;
                                     return;
                                 }
 
@@ -396,13 +397,13 @@ namespace window {
                                         return;
                                     } else {
                                         // Some other error, log it
-                                        std::cerr << "Unexpected error in connection handling: " << e.what() << std::endl;
+                                        LOG_ERROR() << "Unexpected error in connection handling: " << e.what() << std::endl;
                                         return;
                                     }
                                 }
                             });
                         } catch (const std::exception& e) {
-                            std::cerr << "Error in reception thread: " << e.what() << std::endl;
+                            LOG_ERROR() << "Error in reception thread: " << e.what() << std::endl;
                             continue;
                         }
                         
@@ -414,7 +415,7 @@ namespace window {
 
                 reception.detach(); // Let reception retain after this local scope has ended.
             } catch (const std::exception& e) {
-                std::cerr << "Failed to initialize window manager: " << e.what() << std::endl;
+                LOG_ERROR() << "Failed to initialize window manager: " << e.what() << std::endl;
                 throw;
             }
         }
@@ -491,13 +492,13 @@ namespace window {
         
         void moveHandleToDisplay(handle* windowHandle, uint32_t displayId) {
             if (!windowHandle) {
-                std::cerr << "Cannot move null handle to display" << std::endl;
+                LOG_ERROR() << "Cannot move null handle to display" << std::endl;
                 return;
             }
             
             // Check if the display exists
             if (display::manager::activeDisplays.find(displayId) == display::manager::activeDisplays.end()) {
-                std::cerr << "Display ID " << displayId << " not found" << std::endl;
+                LOG_ERROR() << "Display ID " << displayId << " not found" << std::endl;
                 return;
             }
             

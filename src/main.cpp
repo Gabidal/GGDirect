@@ -31,15 +31,15 @@ int main(int argc, char* argv[]) {
     
     DRM::system::init();
 
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    // std::this_thread::sleep_for(std::chrono::seconds(10));
 
-    DRM::system::cleanup();
+    // DRM::system::cleanup();
 
     // Keep the main thread alive and check for shutdown conditions
-    // while (true) {
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    //     // The signal handler will call exit(0) which triggers atexit cleanup
-    // }
+    while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // The signal handler will call exit(0) which triggers atexit cleanup
+    }
 
     return 0;
 }

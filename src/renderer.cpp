@@ -334,15 +334,14 @@ namespace renderer {
 
         auto font = handle->getFont();
 
-        // Optimized cell cache using pre-converted XRGB8888 format
-        static OptimizedCellCache cellCache;
-        cellCache.initialize(static_cast<int>(cellWidth * handle->zoom), 
-                           static_cast<int>(cellHeight * handle->zoom));
+        // Optimized cell cache using pre-converted XRGB8888 format (non-static to avoid sharing issues)
+        OptimizedCellCache cellCache;
+        cellCache.initialize(cellWidth, cellHeight);
         
         // Temporary buffer for font rendering (only used on cache miss)
         font::cellRenderData tempRenderBuffer{
-            static_cast<int>(cellWidth * handle->zoom),
-            static_cast<int>(cellHeight * handle->zoom),
+            cellWidth,
+            cellHeight,
             {}
         };
         tempRenderBuffer.pixels.resize(tempRenderBuffer.width * tempRenderBuffer.height);

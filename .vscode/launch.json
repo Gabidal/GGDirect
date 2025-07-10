@@ -32,7 +32,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/bin/build/GGDirect",
-      "args": [],
+      "args": ["--verbose"],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
       "environment": [],

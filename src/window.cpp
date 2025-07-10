@@ -183,7 +183,7 @@ namespace window {
         // Try to receive a packet header first
         char packetBuffer[packet::size];
         
-        if (!connection.ReceivePacketNonBlocking(packetBuffer, packet::size)) {
+        if (!connection.ReceiveNonBlocking(packetBuffer, packet::size)) {
             // No complete packet available, return without error
             return;
         }
@@ -215,7 +215,7 @@ namespace window {
         else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
             // This is a draw buffer packet, the cell data follows immediately after the packet header
             // We need to receive the cell buffer data as a separate packet to avoid buffer mixing issues
-            if (!connection.ReceivePacketNonBlocking(cellBuffer->data(), cellBuffer->size())) {
+            if (!connection.ReceiveNonBlocking(cellBuffer->data(), cellBuffer->size())) {
                 // Cell buffer data not ready yet, return without error
                 LOG_VERBOSE() << "Draw buffer packet header received, but cell data not ready yet" << std::endl;
                 return;
@@ -347,7 +347,7 @@ namespace window {
                                 // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
                                 types::rectangle windowRectangle = positionToCellCoordinates(position::FULLSCREEN, getPrimaryDisplayId());
 
-                                types::iVector2 dimensionsInCells = {
+                                types::sVector2 dimensionsInCells = {
                                     windowRectangle.size.x,
                                     windowRectangle.size.y
                                 };
@@ -357,7 +357,7 @@ namespace window {
 
                                 // Create resize packet with data
                                 char packetBuffer[packet::size];
-                                packet::resize::base newsize{types::sVector2{dimensionsInCells}};
+                                packet::resize::base newsize{dimensionsInCells};
                                 // we write the inform into the packet buffer
                                 memcpy(packetBuffer, &newsize, sizeof(newsize));
 

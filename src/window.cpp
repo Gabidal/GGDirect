@@ -185,8 +185,9 @@ namespace window {
         // Try to receive a packet header first
         char* packetBuffer = new char[packet::size + maximumBufferSize];
         
-        if (!connection.ReceivePacketNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
+        if (!connection.ReceiveNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
             // No complete packet available, return without error
+            delete[] packetBuffer;
             return;
         }
 
@@ -202,32 +203,38 @@ namespace window {
             if (notifyPacket->notifyType == packet::notify::type::EMPTY_BUFFER) {
                 // If the buffer is empty, we can skip receiving the cell data
                 LOG_VERBOSE() << "Received empty buffer notification, skipping frame" << std::endl;
+                delete[] packetBuffer;
                 return;  // Skip to the next handle
             } 
             else if (notifyPacket->notifyType == packet::notify::type::CLOSED) {
                 LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
                 connection.close();
+                delete[] packetBuffer;
                 return;  // Skip to the next handle
             } else {
                 LOG_ERROR() << "Unknown notify flag received: " << static_cast<int>(notifyPacket->notifyType) << std::endl;
                 errorCount++;
+                delete[] packetBuffer;
                 return;  // Skip to the next handle
             }
         }
         else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
             // Now we can simply just copy over from the packetBuffer the cell data
-            memcpy(cellBuffer->data(), packetBuffer + packet::size, cellBuffer->size());
+            size_t cellDataSize = cellBuffer->size() * sizeof(types::Cell);
+            memcpy(cellBuffer->data(), packetBuffer + packet::size, cellDataSize);
 
-            LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells" << std::endl;
+            LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells (" << cellDataSize << " bytes)" << std::endl;
         }
         else if (basePacket->packetType == packet::type::INPUT) {
             // Input packets are handled elsewhere, ignore them here
             LOG_VERBOSE() << "Received INPUT packet in handle poll (should be handled by input system)" << std::endl;
+            delete[] packetBuffer;
             return;
         }
         else if (basePacket->packetType == packet::type::RESIZE) {
             // Resize packets should be handled elsewhere, ignore them here  
             LOG_VERBOSE() << "Received RESIZE packet in handle poll (should be handled separately)" << std::endl;
+            delete[] packetBuffer;
             return;
         }
         else {
@@ -237,8 +244,12 @@ namespace window {
             }
             LOG_ERROR() << std::dec << ")" << std::endl;
             errorCount++;
+            delete[] packetBuffer;
             return;
         }
+
+        // Clean up allocated memory
+        delete[] packetBuffer;
 
         // Set the errorCount to zero if everything worked.
         errorCount = 0;

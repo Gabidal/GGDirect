@@ -1734,10 +1734,21 @@ namespace display {
         std::shared_ptr<device> Device;
         std::map<uint32_t, std::shared_ptr<connector>> activeDisplays;
         std::function<void(std::shared_ptr<connector>, bool)> hotplugHandler;
+        static bool pageFlipPending = false;  // Track if a page flip is currently pending
     }
 
     bool manager::initialize(const std::string& devicePath) {
         Device = std::make_shared<device>(devicePath);
+        
+        // Set up page flip completion handler to track pending state
+        if (Device) {
+            Device->setPageFlipHandler([](uint32_t crtc_id, uint32_t sequence, void* user_data) {
+                (void)crtc_id; (void)sequence; (void)user_data; // Suppress unused parameter warnings
+                pageFlipPending = false; // Reset pending state when page flip completes
+                LOG_VERBOSE() << "Page flip completed" << std::endl;
+            });
+        }
+        
         return Device->initialize();
     }
 
@@ -1938,12 +1949,13 @@ namespace display {
         
         // Try to use page flipping for smooth updates
         static bool pageFlipSupported = true;
-        if (pageFlipSupported && Device->pageFlip(crtcObj, fb, nullptr)) {
+        if (pageFlipSupported && !pageFlipPending && Device->pageFlip(crtcObj, fb, nullptr)) {
+            pageFlipPending = true;
             return true;
         }
         
         // If page flip fails, disable it for future frames to avoid spam
-        if (pageFlipSupported) {
+        if (pageFlipSupported && !pageFlipPending) {
             pageFlipSupported = false;
             LOG_INFO() << "Page flip not supported, using direct framebuffer updates" << std::endl;
         }

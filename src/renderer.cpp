@@ -194,6 +194,10 @@ namespace renderer {
 
                 });
 
+                // Process DRM events to handle page flip completions
+                // This prevents memory accumulation in the DRM page flip queue
+                display::manager::processEvents(0);  // Non-blocking call
+
                 // Present the framebuffer only once per frame if anything was rendered
                 if (needsPresent && currentFramebuffer) {
                     display::manager::present(primaryConnector, currentFramebuffer);

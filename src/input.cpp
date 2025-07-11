@@ -2,6 +2,7 @@
 #include "window.h"
 #include "system.h"
 #include "logger.h"
+#include "config.h"
 
 #include <iostream>
 #include <fcntl.h>
@@ -49,6 +50,23 @@ namespace input {
         }
 
         bool isPressed = (rawEvent.type == EventType::KEY_PRESS);
+        
+        // Check for keybinds first if this is a key press
+        if (isPressed) {
+            // Convert raw event to config KeyCombination
+            config::KeyCombination keyCombination;
+            keyCombination.keyCode = rawEvent.code;
+            keyCombination.ctrl = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::CTRL);
+            keyCombination.alt = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::ALT);
+            keyCombination.shift = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SHIFT);
+            keyCombination.super = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SUPER);
+            
+            // Try to process the keybind
+            if (config::manager::processKeyInput(keyCombination)) {
+                LOG_VERBOSE() << "Keybind handled in keyboard handler: " << keyCombination.toString() << std::endl;
+                return false; // Don't process this event further
+            }
+        }
         
         // Handle modifier keys
         switch (rawEvent.code) {
@@ -143,8 +161,10 @@ namespace input {
                 // Handle ASCII keys
                 if (rawEvent.code >= KEY_A && rawEvent.code <= KEY_Z) {
                     processedEvent.key = 'a' + (rawEvent.code - KEY_A);
-                } else if (rawEvent.code >= KEY_9 && rawEvent.code <= KEY_0) {
-                    processedEvent.key = '0' + (rawEvent.code - KEY_0);
+                } else if (rawEvent.code >= KEY_1 && rawEvent.code <= KEY_9) {
+                    processedEvent.key = '1' + (rawEvent.code - KEY_1);
+                } else if (rawEvent.code == KEY_0) {
+                    processedEvent.key = '0';
                 } else if (rawEvent.code == KEY_SPACE) {
                     processedEvent.key = ' ';
                 } else if (rawEvent.code == KEY_ENTER) {
@@ -641,11 +661,6 @@ namespace input {
             LOG_INFO() << "Input system shutdown complete." << std::endl;
         }
 
-        void poll() {
-            // The actual polling is handled by the EventProcessor thread
-            // This function is kept for compatibility
-        }
-
         void setFocusedHandle(void* handle) {
             focusedHandle = handle;
         }
@@ -687,6 +702,8 @@ namespace input {
         }
 
         void processInputEvent(const packet::input::base& inputEvent) {
+            // Since keybinds are now handled at the keyboard handler level,
+            // we just send all input events to the focused handle
             sendInputToFocusedHandle(inputEvent);
         }
 
@@ -928,21 +945,4 @@ namespace input {
             return range;
         }
     }
-
-    // ============================================================================
-    // Legacy Compatibility Functions
-    // ============================================================================
-
-    void init() {
-        manager::init();
-    }
-
-    void exit() {
-        manager::exit();
-    }
-
-    void poll() {
-        manager::poll();
-    }
-
 }

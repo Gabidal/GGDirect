@@ -33,7 +33,8 @@ sources = [
   '../src/font.cpp',
   '../src/system.cpp',
   '../src/input.cpp',
-  '../src/logger.cpp'
+  '../src/logger.cpp',
+  '../src/config.cpp'
 ]
 
 # SIMD and CPU-specific options

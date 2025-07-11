@@ -5,6 +5,12 @@
 #include "tcp.h"
 #include "guard.h"
 
+// Forward declaration for config system
+namespace config {
+    struct KeyCombination;
+    bool processKeyInput(const KeyCombination& key);
+}
+
 #include <string>
 #include <vector>
 #include <memory>
@@ -214,7 +220,6 @@ namespace input {
         
         void init();
         void exit();
-        void poll();
         
         // Focus management
         void setFocusedHandle(void* handle);
@@ -245,12 +250,6 @@ namespace input {
         types::iVector2 getDeviceResolution(const std::string& devicePath);
         types::iVector2 getAxisRange(const std::string& devicePath, int axis);
     }
-
-    // Legacy compatibility functions
-    void init();  // Initializes input thread and sets up necessary resources
-    void exit();  // Cleans up input resources and exits the input thread
-    void poll();  // Called from input thread to poll for input events and to then send them to the focused handle
-
 }
 
 #endif

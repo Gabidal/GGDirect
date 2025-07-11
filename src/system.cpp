@@ -3,6 +3,7 @@
 #include "renderer.h"
 #include "window.h"
 #include "input.h"
+#include "config.h"
 
 #include <signal.h>
 #include <initializer_list>
@@ -39,12 +40,16 @@ namespace DRM {
                     logger::error("Failed to register exit handler.");
                 }
                 
+                // Initialize the configuration system first
+                config::manager::init();
+                logger::info("Configuration system initialized successfully.");
+                
                 // Initialize the window manager
                 window::manager::init();
                 logger::info("Window manager initialized successfully.");
                 
                 // Initialize the input system
-                input::init();
+                input::manager::init();
                 logger::info("Input system initialized successfully.");
                 
                 // Initialize the renderer
@@ -68,7 +73,10 @@ namespace DRM {
             
             // Clean up input system first (stops polling threads)
             // This should be fast since it properly joins threads
-            input::exit();
+            input::manager::exit();
+            
+            // Clean up configuration system
+            config::manager::cleanup();
             
             // Clean up renderer (stops rendering thread)
             // This may take up to 200ms to complete

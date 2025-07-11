@@ -326,6 +326,81 @@ namespace tcp {
             return bytesReceived == totalBytes;
         }
 
+    private:
+        // Internal buffer for packet reception to handle partial reads
+        std::vector<char> packetBuffer;
+        size_t packetBytesReceived = 0;
+        
+    public:
+        /**
+         * @brief Attempt to receive a complete packet using internal buffering.
+         * 
+         * This template method handles partial packet reception by maintaining an internal buffer.
+         * It will only return true when a complete packet has been received.
+         * 
+         * @tparam T The type of data to receive
+         * @param data Pointer to buffer where the complete packet will be stored
+         * @param count Number of elements of type T to receive
+         * @return true if a complete packet was received, false otherwise
+         */
+        template<typename T>
+        bool ReceivePacketNonBlocking(T* data, size_t count = 1) {
+            if (handle < 0) {
+                return false;
+            }
+            if (!data && count > 0) {
+                return false;
+            }
+            
+            size_t packetSize = count * sizeof(T);
+            
+            // Initialize buffer if needed
+            if (packetBuffer.size() != packetSize) {
+                packetBuffer.resize(packetSize);
+                packetBytesReceived = 0;
+            }
+            
+            // Keep reading until we have a complete packet
+            while (packetBytesReceived < packetSize) {
+                // Check if data is available
+                if (!hasDataAvailable()) {
+                    return false; // No more data available right now
+                }
+                
+                ssize_t recvd = recv(
+                    handle, 
+                    packetBuffer.data() + packetBytesReceived, 
+                    packetSize - packetBytesReceived, 
+                    MSG_DONTWAIT
+                );
+                
+                if (recvd < 0) {
+                    if (errno == EWOULDBLOCK) {
+                        // Would block, but we might have partial data
+                        return false;
+                    }
+                    // Other error - reset buffer
+                    packetBytesReceived = 0;
+                    return false;
+                }
+                if (recvd == 0) {
+                    // Connection closed by peer - reset buffer
+                    packetBytesReceived = 0;
+                    return false;
+                }
+                
+                packetBytesReceived += recvd;
+            }
+            
+            // We have a complete packet, copy it to output buffer
+            std::memcpy(data, packetBuffer.data(), packetSize);
+            
+            // Reset for next packet
+            packetBytesReceived = 0;
+            
+            return true;
+        }
+
         /**
          * @brief Closes the TCP connection.
          * 

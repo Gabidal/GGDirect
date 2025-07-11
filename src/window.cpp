@@ -180,10 +180,12 @@ namespace window {
             return;
         }
 
+        size_t maximumBufferSize = requiredSize * sizeof(types::Cell);
+
         // Try to receive a packet header first
-        char packetBuffer[packet::size];
+        char* packetBuffer = new char[packet::size + maximumBufferSize];
         
-        if (!connection.ReceiveNonBlocking(packetBuffer, packet::size)) {
+        if (!connection.ReceivePacketNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
             // No complete packet available, return without error
             return;
         }
@@ -213,13 +215,9 @@ namespace window {
             }
         }
         else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
-            // This is a draw buffer packet, the cell data follows immediately after the packet header
-            // We need to receive the cell buffer data as a separate packet to avoid buffer mixing issues
-            if (!connection.ReceiveNonBlocking(cellBuffer->data(), cellBuffer->size())) {
-                // Cell buffer data not ready yet, return without error
-                LOG_VERBOSE() << "Draw buffer packet header received, but cell data not ready yet" << std::endl;
-                return;
-            }
+            // Now we can simply just copy over from the packetBuffer the cell data
+            memcpy(cellBuffer->data(), packetBuffer + packet::size, cellBuffer->size());
+
             LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells" << std::endl;
         }
         else if (basePacket->packetType == packet::type::INPUT) {

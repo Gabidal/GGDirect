@@ -107,18 +107,30 @@ namespace config {
                 window::manager::handles([](std::vector<window::handle>& handles) {
                     if (handles.size() > 1) {
                         window::handle* current = window::manager::getFocusedHandle();
-                        if (current) {
+                        if (current && !current->shouldRemove) {
                             // Find current handle index
                             for (size_t i = 0; i < handles.size(); ++i) {
                                 if (&handles[i] == current) {
                                     size_t nextIndex = (i + 1) % handles.size();
-                                    window::manager::setFocusedHandleByIndex(nextIndex);
-                                    LOG_INFO() << "Switched focus to window: " << handles[nextIndex].name << std::endl;
+                                    // Skip handles marked for removal
+                                    while (nextIndex != i && handles[nextIndex].shouldRemove) {
+                                        nextIndex = (nextIndex + 1) % handles.size();
+                                    }
+                                    if (!handles[nextIndex].shouldRemove) {
+                                        window::manager::setFocusedHandleByIndex(nextIndex);
+                                        LOG_INFO() << "Switched focus to window: " << handles[nextIndex].name << std::endl;
+                                    }
                                     break;
                                 }
                             }
-                        } else if (!handles.empty()) {
-                            window::manager::setFocusedHandleByIndex(0);
+                        } else {
+                            // Find first handle that is not marked for removal
+                            for (size_t i = 0; i < handles.size(); ++i) {
+                                if (!handles[i].shouldRemove) {
+                                    window::manager::setFocusedHandleByIndex(i);
+                                    break;
+                                }
+                            }
                         }
                     }
                 });
@@ -128,17 +140,29 @@ namespace config {
                 window::manager::handles([](std::vector<window::handle>& handles) {
                     if (handles.size() > 1) {
                         window::handle* current = window::manager::getFocusedHandle();
-                        if (current) {
+                        if (current && !current->shouldRemove) {
                             for (size_t i = 0; i < handles.size(); ++i) {
                                 if (&handles[i] == current) {
                                     size_t prevIndex = (i == 0) ? handles.size() - 1 : i - 1;
-                                    window::manager::setFocusedHandleByIndex(prevIndex);
-                                    LOG_INFO() << "Switched focus to window: " << handles[prevIndex].name << std::endl;
+                                    // Skip handles marked for removal
+                                    while (prevIndex != i && handles[prevIndex].shouldRemove) {
+                                        prevIndex = (prevIndex == 0) ? handles.size() - 1 : prevIndex - 1;
+                                    }
+                                    if (!handles[prevIndex].shouldRemove) {
+                                        window::manager::setFocusedHandleByIndex(prevIndex);
+                                        LOG_INFO() << "Switched focus to window: " << handles[prevIndex].name << std::endl;
+                                    }
                                     break;
                                 }
                             }
-                        } else if (!handles.empty()) {
-                            window::manager::setFocusedHandleByIndex(handles.size() - 1);
+                        } else {
+                            // Find last handle that is not marked for removal
+                            for (int i = static_cast<int>(handles.size()) - 1; i >= 0; --i) {
+                                if (!handles[i].shouldRemove) {
+                                    window::manager::setFocusedHandleByIndex(i);
+                                    break;
+                                }
+                            }
                         }
                     }
                 });
@@ -146,7 +170,7 @@ namespace config {
             }
             case ActionType::MOVE_WINDOW_FULLSCREEN: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     current->preset = window::position::FULLSCREEN;
                     LOG_INFO() << "Moved window to fullscreen: " << current->name << std::endl;
                 }
@@ -154,7 +178,7 @@ namespace config {
             }
             case ActionType::MOVE_WINDOW_LEFT: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     current->preset = window::position::LEFT;
                     LOG_INFO() << "Moved window to left half: " << current->name << std::endl;
                 }
@@ -162,7 +186,7 @@ namespace config {
             }
             case ActionType::MOVE_WINDOW_RIGHT: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     current->preset = window::position::RIGHT;
                     LOG_INFO() << "Moved window to right half: " << current->name << std::endl;
                 }
@@ -170,7 +194,7 @@ namespace config {
             }
             case ActionType::MOVE_WINDOW_TOP: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     current->preset = window::position::TOP;
                     LOG_INFO() << "Moved window to top half: " << current->name << std::endl;
                 }
@@ -178,7 +202,7 @@ namespace config {
             }
             case ActionType::MOVE_WINDOW_BOTTOM: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     current->preset = window::position::BOTTOM;
                     LOG_INFO() << "Moved window to bottom half: " << current->name << std::endl;
                 }
@@ -186,7 +210,7 @@ namespace config {
             }
             case ActionType::CLOSE_FOCUSED_WINDOW: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     LOG_INFO() << "Closing window: " << current->name << std::endl;
                     current->close();
                 }
@@ -194,7 +218,7 @@ namespace config {
             }
             case ActionType::TOGGLE_ZOOM: {
                 window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
+                if (current && !current->shouldRemove) {
                     current->zoom = (current->zoom == 1.0f) ? 1.5f : 1.0f;
                     LOG_INFO() << "Toggled zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
                 }

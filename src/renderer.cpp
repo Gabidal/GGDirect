@@ -164,25 +164,27 @@ namespace renderer {
                         return aRectangle.position.z < bRectangle.position.z;  // Sort by z position
                     });
 
-                    // Receive cell buffers and remove problematic handles
+                    // Receive cell buffers and check for disconnected handles
                     for (int i = static_cast<int>(self.size()) - 1; i >= 0; i--) {
                         if (self[i].connection.isClosed()) {
-                            // If the connection is closed, remove the handle
-                            LOG_ERROR() << "Removing handle " << i << " due to closed connection" << std::endl;
-                            self.erase(self.begin() + i);
+                            // Connection was closed by client or network failure
+                            LOG_INFO() << "Handle " << i << " disconnected, marking for removal" << std::endl;
+                            self[i].shouldRemove = true;
                             continue;
                         }
 
                         if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
-                            // This handle has given us way too many problems, remove it
-                            LOG_ERROR() << "Removing handle " << i << " due to excessive errors (" << 
-                                         self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << ")" << std::endl;
-                            self.erase(self.begin() + i);
+                            // Handle has too many communication errors - likely disconnected
+                            LOG_ERROR() << "Handle " << i << " has excessive errors (" << 
+                                         self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << "), marking for removal" << std::endl;
+                            self[i].shouldRemove = true;
                             continue;
                         }
 
-                        // Safely poll the handle (now non-blocking)
-                        self[i].poll();
+                        // Poll active handles for new data
+                        if (!self[i].shouldRemove) {
+                            self[i].poll();
+                        }
                     }
 
                     // Render gotten cell buffers.
@@ -193,6 +195,9 @@ namespace renderer {
                     }
 
                 });
+
+                // Clean up dead handles after polling
+                window::manager::cleanupDeadHandles();
 
                 // Process DRM events to handle page flip completions
                 // This prevents memory accumulation in the DRM page flip queue

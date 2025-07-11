@@ -5,7 +5,13 @@
  * 
  * Key improvements over the original hardcoded approach:
  * 
- * 1. Dynamic Display Detection:
+ * 1. Dynamic Display D            } else if (notifyPacket->notifyType == packet::notify::type::CLOSED) {
+                LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
+                connection.close();
+                // Mark this handle for removal
+                shouldRemove = true;
+                delete[] packetBuffer;
+                return;  // Skip to the next handleion:
  *    - Automatically detects and works with multiple displays
  *    - Handles display hotplug events gracefully
  *    - Fallback to primary display when requested display is unavailable
@@ -389,10 +395,7 @@ namespace window {
                                     LOG_VERBOSE() << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
                                     
                                     // Set the first handle as focused by default
-                                    if (self.size() == 1) {
-                                        setFocusedHandle(&self[0]);
-                                        LOG_VERBOSE() << "Set first handle as focused for input." << std::endl;
-                                    }
+                                    setFocusedHandle(&self.back());
                                     
                                     logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
                                 });
@@ -604,6 +607,44 @@ namespace window {
             for (const auto& pair : distribution) {
                 LOG_VERBOSE() << "Display " << pair.first << ": " << pair.second << " handles" << std::endl;
             }
+        }
+        
+        // Cleanup management functions
+        void cleanupDeadHandles() {
+            handles([](std::vector<handle>& self) {
+                auto it = std::remove_if(self.begin(), self.end(), [](const handle& h) {
+                    return h.shouldRemove;
+                });
+                
+                if (it != self.end()) {
+                    // Check if the focused handle is being removed
+                    handle* focused = getFocusedHandle();
+                    bool focusedHandleRemoved = false;
+                    
+                    for (auto removeIt = it; removeIt != self.end(); ++removeIt) {
+                        if (focused == &(*removeIt)) {
+                            focusedHandleRemoved = true;
+                            break;
+                        }
+                    }
+                    
+                    size_t removedCount = std::distance(it, self.end());
+                    self.erase(it, self.end());
+                    
+                    LOG_INFO() << "Cleaned up " << removedCount << " dead handle(s)" << std::endl;
+                    
+                    // Update focused handle if it was removed
+                    if (focusedHandleRemoved) {
+                        if (!self.empty()) {
+                            setFocusedHandle(&self[0]);
+                            LOG_INFO() << "Focused handle was removed, switched focus to first available handle" << std::endl;
+                        } else {
+                            setFocusedHandle(nullptr);
+                            LOG_INFO() << "No handles remaining, cleared focused handle" << std::endl;
+                        }
+                    }
+                }
+            });
         }
     }
 

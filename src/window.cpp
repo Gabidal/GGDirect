@@ -9,7 +9,6 @@
                 LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
                 connection.close();
                 // Mark this handle for removal
-                shouldRemove = true;
                 delete[] packetBuffer;
                 return;  // Skip to the next handleion:
  *    - Automatically detects and works with multiple displays
@@ -461,6 +460,9 @@ namespace window {
         }
         
         handle* getFocusedHandle() {
+            if (!currentFocusedHandle)
+                setFocusOnNextAvailableHandle();
+
             return currentFocusedHandle;
         }
         
@@ -469,6 +471,45 @@ namespace window {
                 if (index < self.size()) {
                     setFocusedHandle(&self[index]);
                 }
+            });
+        }
+
+        void setFocusOnNextAvailableHandle() {
+            handles([](std::vector<handle>& self) {
+                if (self.empty()) {
+                    LOG_ERROR() << "No available handles to focus on" << std::endl;
+                    return;
+                }
+
+                if (currentFocusedHandle && self.size() > 1) {
+                    // We can now find the current index and then return the currentIndex+1
+                    size_t currentIndex = 0;
+
+                    for (size_t i = 0; i < self.size(); ++i) {
+                        if (&self[i] == currentFocusedHandle) {
+                            currentIndex = i;
+                            break;
+                        }
+                    }
+
+                    // Set the next handle as focused, wrapping around if necessary
+                    size_t nextIndex = (currentIndex + 1) % self.size();
+
+                    setFocusedHandle(&self[nextIndex]);
+
+                    return;
+                }
+                
+                // Find the first handle that is not marked for removal
+                for (size_t i = 0; i < self.size(); ++i) {
+                    if (!self[i].connection.isClosed()) {
+                        setFocusedHandle(&self[i]);
+                        LOG_VERBOSE() << "Focused handle " << i << " with name: " << self[i].name << std::endl;
+                        return;
+                    }
+                }
+                
+                LOG_VERBOSE() << "No focusable handles" << std::endl;
             });
         }
         
@@ -613,7 +654,7 @@ namespace window {
         void cleanupDeadHandles() {
             handles([](std::vector<handle>& self) {
                 auto it = std::remove_if(self.begin(), self.end(), [](const handle& h) {
-                    return h.shouldRemove;
+                    return h.connection.getHandle() < 0;
                 });
                 
                 if (it != self.end()) {

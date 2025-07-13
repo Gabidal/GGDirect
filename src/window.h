@@ -58,9 +58,6 @@ namespace window {
         
         // Display management - track which display this handle is positioned on
         uint32_t displayId;  // ID of the display this handle is associated with
-        
-        // Connection management - track if this handle should be removed
-        bool shouldRemove = false;
 
         std::unique_ptr<font::font> customFont = nullptr;
 
@@ -109,6 +106,7 @@ namespace window {
         extern void setFocusedHandle(handle* focusedHandle);
         extern handle* getFocusedHandle();
         extern void setFocusedHandleByIndex(size_t index);
+        extern void setFocusOnNextAvailableHandle();
         extern size_t getActiveHandleCount();
         
         // Cleanup management

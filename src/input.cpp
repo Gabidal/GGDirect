@@ -707,6 +707,15 @@ namespace input {
             sendInputToFocusedHandle(inputEvent);
         }
 
+        /**
+         * @brief Sends an input event to the currently focused window handle.
+         *
+         * This function checks if there is a focused handle and, if so, casts it to a window handle.
+         * It then prepares a packet buffer, copies the input event data into the buffer, and sends it
+         * through the handle's connection. If sending fails, an error is logged.
+         *
+         * @param inputEvent The input event to be sent to the focused handle.
+         */
         void sendInputToFocusedHandle(const packet::input::base& inputEvent) {
             if (focusedHandle) {
                 // Cast to window::handle* and send the input event

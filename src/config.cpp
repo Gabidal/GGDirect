@@ -100,144 +100,127 @@ namespace config {
         return result;
     }
 
-    // Action implementation
+    /**
+     * @brief Executes the action associated with this Action instance.
+     *
+     * Depending on the ActionType, this method performs various window management operations,
+     * such as switching focus between windows, moving the focused window to a specific position,
+     * closing the focused window, adjusting zoom, or executing a custom callback.
+     *
+     * The method handles the following ActionTypes:
+     * - SWITCH_FOCUS_NEXT: Switches focus to the next available window that is not marked for removal.
+     * - SWITCH_FOCUS_PREVIOUS: Switches focus to the previous available window that is not marked for removal.
+     * - MOVE_WINDOW_FULLSCREEN: Moves the currently focused window to fullscreen.
+     * - MOVE_WINDOW_LEFT: Moves the currently focused window to the left half of the screen.
+     * - MOVE_WINDOW_RIGHT: Moves the currently focused window to the right half of the screen.
+     * - MOVE_WINDOW_TOP: Moves the currently focused window to the top half of the screen.
+     * - MOVE_WINDOW_BOTTOM: Moves the currently focused window to the bottom half of the screen.
+     * - CLOSE_FOCUSED_WINDOW: Closes the currently focused window.
+     * - TOGGLE_ZOOM: Toggles the zoom level of the currently focused window between 1.0x and 1.5x.
+     * - INCREASE_ZOOM: Increases the zoom level of the currently focused window, up to a maximum of 3.0x.
+     * - DECREASE_ZOOM: Decreases the zoom level of the currently focused window, down to a minimum of 0.5x.
+     * - CUSTOM: Executes a user-defined callback if provided; logs an error otherwise.
+     *
+     * Logs information or errors for each action performed.
+     */
     void Action::execute() const {
+        char packetBuffer[packet::size];
+        packet::base* basePacket = (packet::base*)packetBuffer;
+        
+        bool closeConnectionAfterwards = false;
+
+        window::handle* current = window::manager::getFocusedHandle();
+
+        if (!current)   // No valid handle found
+            return;
+
         switch (type) {
             case ActionType::SWITCH_FOCUS_NEXT: {
-                window::manager::handles([](std::vector<window::handle>& handles) {
-                    if (handles.size() > 1) {
-                        window::handle* current = window::manager::getFocusedHandle();
-                        if (current && !current->shouldRemove) {
-                            // Find current handle index
-                            for (size_t i = 0; i < handles.size(); ++i) {
-                                if (&handles[i] == current) {
-                                    size_t nextIndex = (i + 1) % handles.size();
-                                    // Skip handles marked for removal
-                                    while (nextIndex != i && handles[nextIndex].shouldRemove) {
-                                        nextIndex = (nextIndex + 1) % handles.size();
-                                    }
-                                    if (!handles[nextIndex].shouldRemove) {
-                                        window::manager::setFocusedHandleByIndex(nextIndex);
-                                        LOG_INFO() << "Switched focus to window: " << handles[nextIndex].name << std::endl;
-                                    }
-                                    break;
-                                }
-                            }
-                        } else {
-                            // Find first handle that is not marked for removal
-                            for (size_t i = 0; i < handles.size(); ++i) {
-                                if (!handles[i].shouldRemove) {
-                                    window::manager::setFocusedHandleByIndex(i);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                });
+                window::manager::setFocusOnNextAvailableHandle();
                 break;
             }
             case ActionType::SWITCH_FOCUS_PREVIOUS: {
-                window::manager::handles([](std::vector<window::handle>& handles) {
-                    if (handles.size() > 1) {
-                        window::handle* current = window::manager::getFocusedHandle();
-                        if (current && !current->shouldRemove) {
-                            for (size_t i = 0; i < handles.size(); ++i) {
-                                if (&handles[i] == current) {
-                                    size_t prevIndex = (i == 0) ? handles.size() - 1 : i - 1;
-                                    // Skip handles marked for removal
-                                    while (prevIndex != i && handles[prevIndex].shouldRemove) {
-                                        prevIndex = (prevIndex == 0) ? handles.size() - 1 : prevIndex - 1;
-                                    }
-                                    if (!handles[prevIndex].shouldRemove) {
-                                        window::manager::setFocusedHandleByIndex(prevIndex);
-                                        LOG_INFO() << "Switched focus to window: " << handles[prevIndex].name << std::endl;
-                                    }
-                                    break;
-                                }
-                            }
-                        } else {
-                            // Find last handle that is not marked for removal
-                            for (int i = static_cast<int>(handles.size()) - 1; i >= 0; --i) {
-                                if (!handles[i].shouldRemove) {
-                                    window::manager::setFocusedHandleByIndex(i);
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                });
+                window::manager::setFocusOnNextAvailableHandle();
                 break;
             }
             case ActionType::MOVE_WINDOW_FULLSCREEN: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
+                if (current->preset != window::position::FULLSCREEN) {
                     current->preset = window::position::FULLSCREEN;
                     LOG_INFO() << "Moved window to fullscreen: " << current->name << std::endl;
+
+                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::FULLSCREEN, current->displayId);
+
+                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_LEFT: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
+                if (current->preset != window::position::LEFT) {
                     current->preset = window::position::LEFT;
                     LOG_INFO() << "Moved window to left half: " << current->name << std::endl;
+
+                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::LEFT, current->displayId);
+
+                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_RIGHT: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
+                if (current->preset != window::position::RIGHT) {
                     current->preset = window::position::RIGHT;
                     LOG_INFO() << "Moved window to right half: " << current->name << std::endl;
+
+                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::RIGHT, current->displayId);
+
+                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_TOP: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
+                if (current->preset != window::position::TOP) {
                     current->preset = window::position::TOP;
                     LOG_INFO() << "Moved window to top half: " << current->name << std::endl;
+
+                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::TOP, current->displayId);
+
+                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_BOTTOM: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
+                if (current->preset != window::position::BOTTOM) {
                     current->preset = window::position::BOTTOM;
                     LOG_INFO() << "Moved window to bottom half: " << current->name << std::endl;
+
+                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::BOTTOM, current->displayId);
+
+                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
                 }
                 break;
             }
             case ActionType::CLOSE_FOCUSED_WINDOW: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
+                if (!current->connection.isClosed()) {
                     LOG_INFO() << "Closing window: " << current->name << std::endl;
-                    current->close();
+
+                    new(packetBuffer) packet::notify::base(packet::notify::type::CLOSED);
+
+                    closeConnectionAfterwards = true;
                 }
                 break;
             }
             case ActionType::TOGGLE_ZOOM: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current && !current->shouldRemove) {
-                    current->zoom = (current->zoom == 1.0f) ? 1.5f : 1.0f;
-                    LOG_INFO() << "Toggled zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
-                }
+                current->zoom = (current->zoom == 1.0f) ? 1.5f : 1.0f;
+                LOG_INFO() << "Toggled zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
                 break;
             }
             case ActionType::INCREASE_ZOOM: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
-                    current->zoom = std::min(current->zoom + 0.1f, 3.0f);
-                    LOG_INFO() << "Increased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
-                }
+                current->zoom = std::min(current->zoom + 0.1f, 3.0f);
+                LOG_INFO() << "Increased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
                 break;
             }
             case ActionType::DECREASE_ZOOM: {
-                window::handle* current = window::manager::getFocusedHandle();
-                if (current) {
-                    current->zoom = std::max(current->zoom - 0.1f, 0.5f);
-                    LOG_INFO() << "Decreased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
-                }
+                current->zoom = std::max(current->zoom - 0.1f, 0.5f);
+                LOG_INFO() << "Decreased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
                 break;
             }
             case ActionType::CUSTOM: {
@@ -251,6 +234,17 @@ namespace config {
             default:
                 LOG_ERROR() << "Unknown action type executed" << std::endl;
                 break;
+        }
+
+        if (basePacket->packetType == packet::type::UNKNOWN)
+            return; // no valid packets to send
+
+        if (!current->connection.Send(packetBuffer, packet::size)) {
+            LOG_ERROR() << "Failed to send action packet to GGUI client" << std::endl;
+        }
+
+        if (closeConnectionAfterwards) {
+            current->close();
         }
     }
 

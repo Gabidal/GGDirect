@@ -169,7 +169,7 @@ namespace renderer {
                         if (self[i].connection.isClosed()) {
                             // Connection was closed by client or network failure
                             LOG_INFO() << "Handle " << i << " disconnected, marking for removal" << std::endl;
-                            self[i].shouldRemove = true;
+                            self[i].close();
                             continue;
                         }
 
@@ -177,14 +177,12 @@ namespace renderer {
                             // Handle has too many communication errors - likely disconnected
                             LOG_ERROR() << "Handle " << i << " has excessive errors (" << 
                                          self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << "), marking for removal" << std::endl;
-                            self[i].shouldRemove = true;
+                            self[i].close();
                             continue;
                         }
 
                         // Poll active handles for new data
-                        if (!self[i].shouldRemove) {
-                            self[i].poll();
-                        }
+                        self[i].poll();
                     }
 
                     // Render gotten cell buffers.

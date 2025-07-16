@@ -40,10 +40,10 @@ int main(int argc, char* argv[]) {
 
     // Keep the main thread alive and check for shutdown conditions
     while (true) {
-        if (window::manager::getFocusedHandle()){
-            config::Action a(config::ActionType::MOVE_WINDOW_TOP);
-            a.execute();
-        }
+        // if (window::manager::getFocusedHandle()){
+        //     config::Action a(config::ActionType::MOVE_WINDOW_TOP);
+        //     a.execute();
+        // }
         std::this_thread::sleep_for(std::chrono::milliseconds(5000));
         // The signal handler will call exit(0) which triggers atexit cleanup
     }

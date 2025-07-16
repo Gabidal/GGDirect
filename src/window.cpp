@@ -172,123 +172,128 @@ namespace window {
 
         unsigned int requiredSize = dimensionsInCells.x * dimensionsInCells.y;
 
-        if (requiredSize != cellBuffer->size()) {
-            // Resize the buffer to match the required size
-            cellBuffer->resize(requiredSize);
-            LOG_VERBOSE() << "Resized cell buffer to " << requiredSize << " cells (" 
-                          << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
-        }
+        // Protect cellBuffer access with mutex
+        {
+            std::lock_guard<std::mutex> lock(cellBufferMutex);
+            
+            if (requiredSize != cellBuffer->size()) {
+                // Resize the buffer to match the required size
+                cellBuffer->resize(requiredSize);
+                LOG_VERBOSE() << "Resized cell buffer to " << requiredSize << " cells (" 
+                              << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
+            }
 
-        // Debug: Show current buffer state
-        LOG_VERBOSE() << "Poll: Buffer size=" << cellBuffer->size() 
-                      << ", Required=" << requiredSize 
-                      << ", Dimensions=" << dimensionsInCells.x << "x" << dimensionsInCells.y << std::endl;
+            // Debug: Show current buffer state
+            LOG_VERBOSE() << "Poll: Buffer size=" << cellBuffer->size() 
+                          << ", Required=" << requiredSize 
+                          << ", Dimensions=" << dimensionsInCells.x << "x" << dimensionsInCells.y << std::endl;
 
-        // Now we'll get the buffer data from the GGUI client.
-        if (!cellBuffer || cellBuffer->empty()) {
-            LOG_ERROR() << "Cell buffer is invalid or empty" << std::endl;
-            errorCount++;
-            return;
-        }
+            // Now we'll get the buffer data from the GGUI client.
+            if (!cellBuffer || cellBuffer->empty()) {
+                LOG_ERROR() << "Cell buffer is invalid or empty" << std::endl;
+                errorCount++;
+                return;
+            }
 
-        size_t maximumBufferSize = requiredSize * sizeof(types::Cell);
+            size_t maximumBufferSize = requiredSize * sizeof(types::Cell);
 
-        // Try to receive a packet header first
-        char* packetBuffer = new char[packet::size + maximumBufferSize];
-        
-        if (!connection.ReceiveNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
-            // No complete packet available, but check if we have any partial data that might indicate buffer misalignment
-            if (connection.hasDataAvailable()) {
-                LOG_VERBOSE() << "Partial data detected in TCP buffer, may indicate buffer misalignment" << std::endl;
+            // Try to receive a packet header first
+            char* packetBuffer = new char[packet::size + maximumBufferSize];
+            
+            if (!connection.ReceiveNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
+                // No complete packet available, but check if we have any partial data that might indicate buffer misalignment
+                if (connection.hasDataAvailable()) {
+                    LOG_VERBOSE() << "Partial data detected in TCP buffer, may indicate buffer misalignment" << std::endl;
+                    
+                    // If we've had recent errors, this might be misaligned data - consider flushing
+                    if (errorCount > 0) {
+                        flushTcpReceiveBuffer();
+                    }
+                }
                 
-                // If we've had recent errors, this might be misaligned data - consider flushing
-                if (errorCount > 0) {
-                    flushTcpReceiveBuffer();
+                delete[] packetBuffer;
+                return;
+            }
+
+            // Cast to base packet to check type
+            packet::base* basePacket = reinterpret_cast<packet::base*>(packetBuffer);
+            
+            LOG_VERBOSE() << "Received packet type: " << static_cast<int>(basePacket->packetType) << std::endl;
+            
+            if (basePacket->packetType == packet::type::NOTIFY) {
+                // Cast to notify packet
+                packet::notify::base* notifyPacket = reinterpret_cast<packet::notify::base*>(packetBuffer);
+
+                if (notifyPacket->notifyType == packet::notify::type::EMPTY_BUFFER) {
+                    // If the buffer is empty, we can skip receiving the cell data
+                    LOG_VERBOSE() << "Received empty buffer notification, skipping frame" << std::endl;
+                    delete[] packetBuffer;
+                    return;  // Skip to the next handle
+                } 
+                else if (notifyPacket->notifyType == packet::notify::type::CLOSED) {
+                    LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
+                    connection.close();
+                    delete[] packetBuffer;
+                    return;  // Skip to the next handle
+                } else {
+                    LOG_ERROR() << "Unknown notify flag received: " << static_cast<int>(notifyPacket->notifyType) << std::endl;
+                    errorCount++;
+                    delete[] packetBuffer;
+                    return;  // Skip to the next handle
                 }
             }
-            
-            delete[] packetBuffer;
-            return;
-        }
-
-        // Cast to base packet to check type
-        packet::base* basePacket = reinterpret_cast<packet::base*>(packetBuffer);
-        
-        LOG_VERBOSE() << "Received packet type: " << static_cast<int>(basePacket->packetType) << std::endl;
-        
-        if (basePacket->packetType == packet::type::NOTIFY) {
-            // Cast to notify packet
-            packet::notify::base* notifyPacket = reinterpret_cast<packet::notify::base*>(packetBuffer);
-
-            if (notifyPacket->notifyType == packet::notify::type::EMPTY_BUFFER) {
-                // If the buffer is empty, we can skip receiving the cell data
-                LOG_VERBOSE() << "Received empty buffer notification, skipping frame" << std::endl;
-                delete[] packetBuffer;
-                return;  // Skip to the next handle
-            } 
-            else if (notifyPacket->notifyType == packet::notify::type::CLOSED) {
-                LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
-                connection.close();
-                delete[] packetBuffer;
-                return;  // Skip to the next handle
-            } else {
-                LOG_ERROR() << "Unknown notify flag received: " << static_cast<int>(notifyPacket->notifyType) << std::endl;
-                errorCount++;
-                delete[] packetBuffer;
-                return;  // Skip to the next handle
-            }
-        }
-        else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
-            // Validate that the received buffer size matches what we expect
-            size_t cellDataSize = cellBuffer->size() * sizeof(types::Cell);
-            size_t availableData = packet::size + maximumBufferSize - packet::size; // Data portion of the packet
-            
-            if (cellDataSize > availableData) {
-                LOG_ERROR() << "Buffer size mismatch - expected " << cellDataSize 
-                           << " bytes but packet only contains " << availableData << " bytes" << std::endl;
+            else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
+                // Validate that the received buffer size matches what we expect
+                size_t cellDataSize = cellBuffer->size() * sizeof(types::Cell);
+                size_t availableData = packet::size + maximumBufferSize - packet::size; // Data portion of the packet
                 
-                // This indicates a serious buffer misalignment, flush TCP buffer
+                if (cellDataSize > availableData) {
+                    LOG_ERROR() << "Buffer size mismatch - expected " << cellDataSize 
+                               << " bytes but packet only contains " << availableData << " bytes" << std::endl;
+                    
+                    // This indicates a serious buffer misalignment, flush TCP buffer
+                    flushTcpReceiveBuffer();
+                    
+                    errorCount++;
+                    delete[] packetBuffer;
+                    return;
+                }
+                
+                // Now we can safely copy over from the packetBuffer the cell data
+                memcpy(cellBuffer->data(), packetBuffer + packet::size, cellDataSize);
+
+                LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells (" << cellDataSize << " bytes)" << std::endl;
+            }
+            else if (basePacket->packetType == packet::type::INPUT) {
+                // Input packets are handled elsewhere, ignore them here
+                LOG_VERBOSE() << "Received INPUT packet in handle poll (should be handled by input system)" << std::endl;
+                delete[] packetBuffer;
+                return;
+            }
+            else if (basePacket->packetType == packet::type::RESIZE) {
+                // Resize packets should be handled elsewhere, ignore them here  
+                LOG_VERBOSE() << "Received RESIZE packet in handle poll (should be handled separately)" << std::endl;
+                delete[] packetBuffer;
+                return;
+            }
+            else {
+                LOG_ERROR() << "Unknown packet type received: " << static_cast<int>(basePacket->packetType) << " (raw bytes: " << std::hex;
+                for (int i = 0; i < 8 && i < packet::size; i++) {
+                    LOG_ERROR() << " 0x" << static_cast<unsigned char>(packetBuffer[i]);
+                }
+                LOG_ERROR() << std::dec << ")" << std::endl;
+                
+                // Flush TCP buffers to prevent buffer misalignment from corrupted/unexpected packets
                 flushTcpReceiveBuffer();
                 
                 errorCount++;
                 delete[] packetBuffer;
                 return;
             }
-            
-            // Now we can safely copy over from the packetBuffer the cell data
-            memcpy(cellBuffer->data(), packetBuffer + packet::size, cellDataSize);
 
-            LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells (" << cellDataSize << " bytes)" << std::endl;
-        }
-        else if (basePacket->packetType == packet::type::INPUT) {
-            // Input packets are handled elsewhere, ignore them here
-            LOG_VERBOSE() << "Received INPUT packet in handle poll (should be handled by input system)" << std::endl;
+            // Clean up allocated memory
             delete[] packetBuffer;
-            return;
-        }
-        else if (basePacket->packetType == packet::type::RESIZE) {
-            // Resize packets should be handled elsewhere, ignore them here  
-            LOG_VERBOSE() << "Received RESIZE packet in handle poll (should be handled separately)" << std::endl;
-            delete[] packetBuffer;
-            return;
-        }
-        else {
-            LOG_ERROR() << "Unknown packet type received: " << static_cast<int>(basePacket->packetType) << " (raw bytes: " << std::hex;
-            for (int i = 0; i < 8 && i < packet::size; i++) {
-                LOG_ERROR() << " 0x" << static_cast<unsigned char>(packetBuffer[i]);
-            }
-            LOG_ERROR() << std::dec << ")" << std::endl;
-            
-            // Flush TCP buffers to prevent buffer misalignment from corrupted/unexpected packets
-            flushTcpReceiveBuffer();
-            
-            errorCount++;
-            delete[] packetBuffer;
-            return;
-        }
-
-        // Clean up allocated memory
-        delete[] packetBuffer;
+        } // End of cellBuffer mutex lock
 
         // Set the errorCount to zero if everything worked.
         errorCount = 0;
@@ -477,8 +482,8 @@ namespace window {
                                     types::rectangle testRect = newHandle.getCellCoordinates();
                                     LOG_VERBOSE() << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
                                     
-                                    // Set the first handle as focused by default
-                                    setFocusedHandle(&self.back());
+                                    // Always set the new client as the new focused handle.
+                                    setFocusedHandle(&newHandle);
                                     
                                     logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
                                 });

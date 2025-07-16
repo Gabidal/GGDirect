@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <map>
+#include <mutex>
 
 
 namespace window {
@@ -74,6 +75,9 @@ namespace window {
 
         std::vector<types::Cell>* cellBuffer;
         
+        // Mutex to protect cellBuffer access between renderer and reception threads
+        mutable std::mutex cellBufferMutex;
+        
         // Display management - track which display this handle is positioned on
         uint32_t displayId;  // ID of the display this handle is associated with
 
@@ -85,10 +89,41 @@ namespace window {
             delete cellBuffer;
         }
 
-        handle(const window::handle&) = default;
-        handle& operator=(const window::handle&) = default;
-        handle(window::handle&&) noexcept = default;
-        handle& operator=(window::handle&&) noexcept = default;
+        handle(const window::handle&) = delete;  // Disable copy to avoid mutex copying issues
+        handle& operator=(const window::handle&) = delete;  // Disable copy assignment
+        
+        // Custom move constructor
+        handle(window::handle&& other) noexcept 
+            : preset(other.preset), previousPreset(other.previousPreset), errorCount(other.errorCount), 
+              dirty(other.dirty), zoom(other.zoom), connection(std::move(other.connection)), 
+              name(std::move(other.name)), cellBuffer(other.cellBuffer), displayId(other.displayId),
+              customFont(std::move(other.customFont)) {
+            other.cellBuffer = nullptr;  // Take ownership
+        }
+        
+        // Custom move assignment operator
+        handle& operator=(window::handle&& other) noexcept {
+            if (this != &other) {
+                // Clean up existing resources
+                delete cellBuffer;
+                
+                // Move all members
+                preset = other.preset;
+                previousPreset = other.previousPreset;
+                errorCount = other.errorCount;
+                dirty = other.dirty;
+                zoom = other.zoom;
+                connection = std::move(other.connection);
+                name = std::move(other.name);
+                cellBuffer = other.cellBuffer;
+                displayId = other.displayId;
+                customFont = std::move(other.customFont);
+                
+                // Clear the other object
+                other.cellBuffer = nullptr;
+            }
+            return *this;
+        }
 
         void close() {
             connection.close();

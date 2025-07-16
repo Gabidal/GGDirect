@@ -342,11 +342,14 @@ namespace renderer {
     }
 
     bool renderHandle(const window::handle* handle) {
-        if (!rendererInitialized || !handle || !handle->cellBuffer || !currentFramebuffer) {
+        if (!rendererInitialized || !handle || !currentFramebuffer) {
             return false;
         }
 
-        if (handle->cellBuffer->empty()) {
+        // Protect cellBuffer access with mutex
+        std::lock_guard<std::mutex> lock(handle->cellBufferMutex);
+        
+        if (!handle->cellBuffer || handle->cellBuffer->empty()) {
             // Since we use non-blocking tcp's the buffer can still be in transit, so we can skip this turn.
             return false;
         }

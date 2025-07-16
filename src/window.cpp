@@ -156,6 +156,12 @@ namespace window {
             return;
         }
 
+        // Check if we have an active resize stain - if so, skip this poll to avoid buffer misalignment
+        if (stain::has(dirty, stain::type::resize)) {
+            LOG_VERBOSE() << "Handle has active resize stain, skipping poll to avoid buffer misalignment" << std::endl;
+            return;
+        }
+
         // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
         types::rectangle windowRectangle = positionToCellCoordinates(preset, displayId);
 
@@ -191,7 +197,16 @@ namespace window {
         char* packetBuffer = new char[packet::size + maximumBufferSize];
         
         if (!connection.ReceiveNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
-            // No complete packet available, return without error
+            // No complete packet available, but check if we have any partial data that might indicate buffer misalignment
+            if (connection.hasDataAvailable()) {
+                LOG_VERBOSE() << "Partial data detected in TCP buffer, may indicate buffer misalignment" << std::endl;
+                
+                // If we've had recent errors, this might be misaligned data - consider flushing
+                if (errorCount > 0) {
+                    flushTcpReceiveBuffer();
+                }
+            }
+            
             delete[] packetBuffer;
             return;
         }
@@ -224,8 +239,23 @@ namespace window {
             }
         }
         else if (basePacket->packetType == packet::type::DRAW_BUFFER) {
-            // Now we can simply just copy over from the packetBuffer the cell data
+            // Validate that the received buffer size matches what we expect
             size_t cellDataSize = cellBuffer->size() * sizeof(types::Cell);
+            size_t availableData = packet::size + maximumBufferSize - packet::size; // Data portion of the packet
+            
+            if (cellDataSize > availableData) {
+                LOG_ERROR() << "Buffer size mismatch - expected " << cellDataSize 
+                           << " bytes but packet only contains " << availableData << " bytes" << std::endl;
+                
+                // This indicates a serious buffer misalignment, flush TCP buffer
+                flushTcpReceiveBuffer();
+                
+                errorCount++;
+                delete[] packetBuffer;
+                return;
+            }
+            
+            // Now we can safely copy over from the packetBuffer the cell data
             memcpy(cellBuffer->data(), packetBuffer + packet::size, cellDataSize);
 
             LOG_VERBOSE() << "Successfully received draw buffer with " << cellBuffer->size() << " cells (" << cellDataSize << " bytes)" << std::endl;
@@ -248,6 +278,10 @@ namespace window {
                 LOG_ERROR() << " 0x" << static_cast<unsigned char>(packetBuffer[i]);
             }
             LOG_ERROR() << std::dec << ")" << std::endl;
+            
+            // Flush TCP buffers to prevent buffer misalignment from corrupted/unexpected packets
+            flushTcpReceiveBuffer();
+            
             errorCount++;
             delete[] packetBuffer;
             return;
@@ -300,6 +334,28 @@ namespace window {
         clearArea.size.y = maxY - minY;
         
         return clearArea;
+    }
+
+    void handle::flushTcpReceiveBuffer() {
+        LOG_VERBOSE() << "Flushing TCP receive buffer to prevent misalignment" << std::endl;
+        
+        types::rectangle rect = window::positionToCellCoordinates(previousPreset, displayId);
+        size_t drainBufferSize = sizeof(types::Cell) * rect.size.x * rect.size.y;
+
+        char* drainBuffer = new char[drainBufferSize];
+        int drainedTotal = 0;
+        
+        while (connection.hasDataAvailable()) {
+            ssize_t drained = recv(connection.getHandle(), drainBuffer, drainBufferSize, MSG_DONTWAIT);
+            if (drained <= 0) {
+                break; // No more data or error
+            }
+            drainedTotal += drained;
+        }
+        
+        if (drainedTotal > 0) {
+            LOG_VERBOSE() << "Drained " << drainedTotal << " bytes total from TCP buffer" << std::endl;
+        }
     }
 
     namespace manager {

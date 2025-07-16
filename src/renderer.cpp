@@ -303,13 +303,13 @@ namespace renderer {
                 
                 if (needsPresent) {
                     // If we rendered something, aim for higher FPS (120 FPS = ~8ms)
-                    const auto targetFrameTime = std::chrono::milliseconds(8);
+                    const auto targetFrameTime = std::chrono::milliseconds(32);
                     if (frameTime < targetFrameTime) {
                         std::this_thread::sleep_for(targetFrameTime - frameTime);
                     }
                 } else {
                     // If nothing was rendered, sleep longer to reduce CPU usage (30 FPS = ~33ms)
-                    const auto idleFrameTime = std::chrono::milliseconds(33);
+                    const auto idleFrameTime = std::chrono::milliseconds(128);
                     if (frameTime < idleFrameTime) {
                         std::this_thread::sleep_for(idleFrameTime - frameTime);
                     }

@@ -60,7 +60,7 @@ namespace window {
         // I'm not sure where we can get the position of hosting terminal for the current GGUI handle, this will be more important once we start to give inputs from here and ditch terminal hosting.
         position preset;   // Z represents draw order, higher = later draw.
         position previousPreset;  // Previous position preset for resize stain system
-        constexpr static unsigned int maxAllowedErrorCount = 10;
+        constexpr static unsigned int maxAllowedErrorCount = 100;
         unsigned int errorCount;
 
         stain::type dirty;
@@ -111,6 +111,10 @@ namespace window {
         types::rectangle getCoordinates() const { return positionToCellCoordinates(preset, *this); }
         types::rectangle getPixelCoordinates() const { return positionToPixelCoordinates(preset, *this); }
         types::rectangle getCellCoordinates() const { return positionToCellCoordinates(preset, *this); }
+        
+    private:
+        // Helper method to flush TCP receive buffer to prevent misalignment
+        void flushTcpReceiveBuffer();
     };
 
     // Manages all of the handles and their handshake protocol steps.

@@ -1,6 +1,8 @@
 #include "system.h"
 #include "logger.h"
 
+#include "config.h"
+
 #include <thread>
 #include <chrono>
 #include <cstring>
@@ -35,9 +37,14 @@ int main(int argc, char* argv[]) {
 
     // DRM::system::cleanup();
 
+
     // Keep the main thread alive and check for shutdown conditions
     while (true) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (window::manager::getFocusedHandle()){
+            config::Action a(config::ActionType::MOVE_WINDOW_TOP);
+            a.execute();
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
         // The signal handler will call exit(0) which triggers atexit cleanup
     }
 

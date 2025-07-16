@@ -664,8 +664,7 @@ namespace config {
         for (size_t i = 0; i < config.keybinds.focusManagement.size(); ++i) {
             const auto& kb = config.keybinds.focusManagement[i];
             file << "      \"" << kb.key.toString() << "\": \"" << kb.action.toString() << "\"";
-            if (i < config.keybinds.focusManagement.size() - 1) file << ",";
-            file << "  // " << kb.description << "\n";
+            if (i < config.keybinds.focusManagement.size() - 1) file << ", \n";
         }
         
         file << "    },\n";
@@ -675,8 +674,7 @@ namespace config {
         for (size_t i = 0; i < config.keybinds.windowManagement.size(); ++i) {
             const auto& kb = config.keybinds.windowManagement[i];
             file << "      \"" << kb.key.toString() << "\": \"" << kb.action.toString() << "\"";
-            if (i < config.keybinds.windowManagement.size() - 1) file << ",";
-            file << "  // " << kb.description << "\n";
+            if (i < config.keybinds.windowManagement.size() - 1) file << ",\n";
         }
         
         file << "    },\n";
@@ -686,8 +684,7 @@ namespace config {
         for (size_t i = 0; i < config.keybinds.customBinds.size(); ++i) {
             const auto& kb = config.keybinds.customBinds[i];
             file << "      \"" << kb.key.toString() << "\": \"" << kb.action.toString() << "\"";
-            if (i < config.keybinds.customBinds.size() - 1) file << ",";
-            file << "  // " << kb.description << "\n";
+            if (i < config.keybinds.customBinds.size() - 1) file << ",\n";
         }
         
         file << "    }\n";

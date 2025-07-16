@@ -273,6 +273,34 @@ namespace window {
         return font.get();
     }
 
+    void handle::set(stain::type t, bool val) { 
+        if (val) {
+            dirty = static_cast<stain::type>(static_cast<int>(dirty) | static_cast<int>(t));
+        } else {
+            dirty = static_cast<stain::type>(static_cast<int>(dirty) & ~static_cast<int>(t));
+        }
+    }
+
+    types::rectangle handle::getResizeClearArea() const {
+        // Get the current and previous window rectangles in pixel coordinates
+        types::rectangle currentRect = positionToPixelCoordinates(preset, displayId);
+        types::rectangle previousRect = positionToPixelCoordinates(previousPreset, displayId);
+        
+        // Calculate the union of both rectangles to get the total area that needs clearing
+        int minX = std::min(currentRect.position.x, previousRect.position.x);
+        int minY = std::min(currentRect.position.y, previousRect.position.y);
+        int maxX = std::max(currentRect.position.x + currentRect.size.x, previousRect.position.x + previousRect.size.x);
+        int maxY = std::max(currentRect.position.y + currentRect.size.y, previousRect.position.y + previousRect.size.y);
+        
+        types::rectangle clearArea;
+        clearArea.position.x = minX;
+        clearArea.position.y = minY;
+        clearArea.position.z = currentRect.position.z;
+        clearArea.size.x = maxX - minX;
+        clearArea.size.y = maxY - minY;
+        
+        return clearArea;
+    }
 
     namespace manager {
         // Define the global variables

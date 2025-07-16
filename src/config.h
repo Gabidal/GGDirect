@@ -126,6 +126,13 @@ namespace config {
         bool autoDistributeWindows;
         std::string displayAssignmentStrategy; // "round_robin", "primary_only", "fill_then_next"
         uint32_t primaryDisplayId;
+        
+        // Background and wallpaper settings
+        std::string backgroundColor;      // Hex color string (e.g., "#000000" for black)
+        std::string wallpaperPath;       // Path to wallpaper image file (bitmap format)
+        uint32_t backgroundColorRGB;     // Cached RGB value for fast access
+        
+        void loadDefaults();
     };
 
     struct InputSettings {
@@ -224,6 +231,12 @@ namespace config {
         bool addKeybind(const KeyCombination& key, const Action& action, const std::string& description = "");
         bool removeKeybind(const KeyCombination& key);
         std::vector<KeyBind> getAllKeybinds();
+        
+        // Configuration accessors
+        uint32_t getBackgroundColor();
+        std::string getWallpaperPath();
+        bool loadWallpaper(const std::string& wallpaperPath);
+        bool getWallpaperPixel(int x, int y, uint32_t& pixel);
     }
 
     /**

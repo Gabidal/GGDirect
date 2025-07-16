@@ -3,6 +3,7 @@
 #include "display.h"
 #include "font.h"
 #include "logger.h"
+#include "config.h"
 
 #include <thread>
 #include <iostream>
@@ -49,8 +50,7 @@ namespace renderer {
     };
     
     // Fast framebuffer blitting using memcpy for row-based operations
-    inline void blitCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, 
-                                     int startX, int startY, const OptimizedCellCache& cache) {
+    inline void blitCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, int startX, int startY, const OptimizedCellCache& cache) {
         // Bounds checking
         if (startX >= fbWidth || startY >= fbHeight || !cache.isValid) {
             return;
@@ -67,6 +67,44 @@ namespace renderer {
             // Fast row-based copy using memcpy instead of pixel-by-pixel
             std::memcpy(&fbBuffer[dstOffset], &cache.XRGBPixels[srcOffset], 
                        maxCopyWidth * sizeof(uint32_t));
+        }
+    }
+    
+    // Clear a rectangular area in the framebuffer with a specific color or wallpaper
+    inline void clearFramebufferRect(uint32_t* fbBuffer, int fbWidth, int fbHeight, const types::rectangle& rect, uint32_t defaultColor) {
+        // Bounds checking
+        if (rect.position.x >= fbWidth || rect.position.y >= fbHeight || 
+            rect.size.x <= 0 || rect.size.y <= 0) {
+            return;
+        }
+        
+        // Calculate actual clearing bounds
+        int startX = std::max(0, rect.position.x);
+        int startY = std::max(0, rect.position.y);
+        int endX = std::min(fbWidth, rect.position.x + rect.size.x);
+        int endY = std::min(fbHeight, rect.position.y + rect.size.y);
+        
+        // Try to get wallpaper path
+        std::string wallpaperPath = config::manager::getWallpaperPath();
+        
+        // Clear line by line
+        for (int y = startY; y < endY; y++) {
+            uint32_t* lineStart = &fbBuffer[y * fbWidth + startX];
+            
+            if (!wallpaperPath.empty()) {
+                // Use wallpaper if available
+                for (int x = startX; x < endX; x++) {
+                    uint32_t wallpaperPixel;
+                    if (config::manager::getWallpaperPixel(x, y, wallpaperPixel)) {
+                        fbBuffer[y * fbWidth + x] = wallpaperPixel;
+                    } else {
+                        fbBuffer[y * fbWidth + x] = defaultColor;
+                    }
+                }
+            } else {
+                // Use solid color
+                std::fill(lineStart, lineStart + (endX - startX), defaultColor);
+            }
         }
     }
     
@@ -145,6 +183,12 @@ namespace renderer {
         
         rendererInitialized = true;
         
+        // Load wallpaper if configured
+        std::string wallpaperPath = config::manager::getWallpaperPath();
+        if (!wallpaperPath.empty()) {
+            config::manager::loadWallpaper(wallpaperPath);
+        }
+        
         // Start rendering thread
         std::thread renderingThread([](){
             size_t frameCounter = 0;
@@ -169,7 +213,6 @@ namespace renderer {
                         if (self[i].connection.isClosed()) {
                             // Connection was closed by client or network failure
                             LOG_INFO() << "Handle " << i << " disconnected, marking for removal" << std::endl;
-                            self[i].close();
                             continue;
                         }
 
@@ -183,6 +226,35 @@ namespace renderer {
 
                         // Poll active handles for new data
                         self[i].poll();
+                    }
+
+                    // Handle resize stains - clear areas that need to be cleared due to window resizes
+                    if (currentFramebuffer) {
+                        uint32_t* fbBuffer = static_cast<uint32_t*>(currentFramebuffer->getBuffer());
+                        if (fbBuffer) {
+                            for (auto& handle : self) {
+                                if (window::stain::has(handle.dirty, window::stain::type::resize)) {
+                                    // Get the area that needs to be cleared
+                                    types::rectangle clearArea = handle.getResizeClearArea();
+                                    
+                                    // Clear the area with configured background color
+                                    uint32_t backgroundColor = config::manager::getBackgroundColor();
+                                    clearFramebufferRect(fbBuffer, 
+                                                       currentFramebuffer->getPitch() / sizeof(uint32_t), 
+                                                       currentFramebuffer->getHeight(), 
+                                                       clearArea, 
+                                                       backgroundColor);
+                                    
+                                    // Clear the resize stain flag
+                                    handle.set(window::stain::type::resize, false);
+                                    
+                                    LOG_VERBOSE() << "Cleared resize area: " << clearArea.position.x << "," << clearArea.position.y 
+                                                  << " size: " << clearArea.size.x << "x" << clearArea.size.y << std::endl;
+                                    
+                                    needsPresent = true;
+                                }
+                            }
+                        }
                     }
 
                     // Render gotten cell buffers.

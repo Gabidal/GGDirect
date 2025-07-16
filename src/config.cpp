@@ -145,56 +145,71 @@ namespace config {
             }
             case ActionType::MOVE_WINDOW_FULLSCREEN: {
                 if (current->preset != window::position::FULLSCREEN) {
+                    current->previousPreset = current->preset;  // Store previous position for resize stain
                     current->preset = window::position::FULLSCREEN;
                     LOG_INFO() << "Moved window to fullscreen: " << current->name << std::endl;
 
                     types::rectangle newrect = window::positionToPixelCoordinates(window::position::FULLSCREEN, current->displayId);
 
                     new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
+
+                    current->set(window::stain::type::resize, true);
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_LEFT: {
                 if (current->preset != window::position::LEFT) {
+                    current->previousPreset = current->preset;  // Store previous position for resize stain
                     current->preset = window::position::LEFT;
                     LOG_INFO() << "Moved window to left half: " << current->name << std::endl;
 
                     types::rectangle newrect = window::positionToPixelCoordinates(window::position::LEFT, current->displayId);
 
                     new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
+                    
+                    current->set(window::stain::type::resize, true);
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_RIGHT: {
                 if (current->preset != window::position::RIGHT) {
+                    current->previousPreset = current->preset;  // Store previous position for resize stain
                     current->preset = window::position::RIGHT;
                     LOG_INFO() << "Moved window to right half: " << current->name << std::endl;
 
                     types::rectangle newrect = window::positionToPixelCoordinates(window::position::RIGHT, current->displayId);
 
                     new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
+                    
+                    current->set(window::stain::type::resize, true);
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_TOP: {
                 if (current->preset != window::position::TOP) {
+                    current->previousPreset = current->preset;  // Store previous position for resize stain
                     current->preset = window::position::TOP;
                     LOG_INFO() << "Moved window to top half: " << current->name << std::endl;
 
                     types::rectangle newrect = window::positionToPixelCoordinates(window::position::TOP, current->displayId);
 
                     new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
+                    
+                    current->set(window::stain::type::resize, true);
                 }
                 break;
             }
             case ActionType::MOVE_WINDOW_BOTTOM: {
                 if (current->preset != window::position::BOTTOM) {
+                    current->previousPreset = current->preset;  // Store previous position for resize stain
                     current->preset = window::position::BOTTOM;
                     LOG_INFO() << "Moved window to bottom half: " << current->name << std::endl;
 
                     types::rectangle newrect = window::positionToPixelCoordinates(window::position::BOTTOM, current->displayId);
 
                     new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
+                    
+                    current->set(window::stain::type::resize, true);
                 }
                 break;
             }
@@ -205,6 +220,8 @@ namespace config {
                     new(packetBuffer) packet::notify::base(packet::notify::type::CLOSED);
 
                     closeConnectionAfterwards = true;
+
+                    current->set(window::stain::type::closed, true);
                 }
                 break;
             }
@@ -358,13 +375,109 @@ namespace config {
         );
     }
 
+    // DisplaySettings implementation
+    void DisplaySettings::loadDefaults() {
+        autoDistributeWindows = true;
+        displayAssignmentStrategy = "round_robin";
+        primaryDisplayId = 0;
+        backgroundColor = "#000000";      // Default black background
+        wallpaperPath = "";               // No wallpaper by default
+        backgroundColorRGB = 0x00000000;  // Black in XRGB8888 format
+    }
+
+    // Helper function to parse hex color strings
+    uint32_t parseHexColor(const std::string& hexColor) {
+        if (hexColor.empty() || hexColor[0] != '#') {
+            return 0x00000000; // Default to black
+        }
+        
+        std::string hex = hexColor.substr(1); // Remove '#'
+        if (hex.length() == 6) {
+            try {
+                uint32_t color = std::stoul(hex, nullptr, 16);
+                return color; // Already in RGB format, suitable for XRGB8888
+            } catch (const std::exception&) {
+                return 0x00000000; // Default to black on error
+            }
+        }
+        return 0x00000000; // Default to black for invalid format
+    }
+
+    // Simple bitmap image structure for wallpaper support
+    struct BitmapImage {
+        int width;
+        int height;
+        std::vector<uint32_t> pixels; // XRGB8888 format
+        bool isValid;
+        
+        BitmapImage() : width(0), height(0), isValid(false) {}
+        
+        bool loadFromFile(const std::string& filePath) {
+            std::ifstream file(filePath, std::ios::binary);
+            if (!file.is_open()) {
+                return false;
+            }
+            
+            // Read BMP header (simplified - assumes 24-bit RGB bitmap)
+            char header[54];
+            file.read(header, 54);
+            
+            if (header[0] != 'B' || header[1] != 'M') {
+                return false; // Not a valid BMP file
+            }
+            
+            // Extract dimensions (little-endian)
+            width = *reinterpret_cast<int*>(&header[18]);
+            height = *reinterpret_cast<int*>(&header[22]);
+            
+            // Check if it's 24-bit RGB
+            int bitsPerPixel = *reinterpret_cast<short*>(&header[28]);
+            if (bitsPerPixel != 24) {
+                return false; // Only support 24-bit RGB for simplicity
+            }
+            
+            // Calculate padding for 4-byte alignment
+            int padding = (4 - (width * 3) % 4) % 4;
+            
+            // Read pixel data (BMP is stored bottom-up)
+            pixels.resize(width * height);
+            for (int y = height - 1; y >= 0; y--) {
+                for (int x = 0; x < width; x++) {
+                    char bgr[3];
+                    file.read(bgr, 3);
+                    
+                    // Convert BGR to XRGB8888
+                    uint32_t pixel = (static_cast<uint8_t>(bgr[2]) << 16) |  // R
+                                   (static_cast<uint8_t>(bgr[1]) << 8) |   // G
+                                   static_cast<uint8_t>(bgr[0]);           // B
+                    
+                    pixels[y * width + x] = pixel;
+                }
+                
+                // Skip padding bytes
+                file.seekg(padding, std::ios::cur);
+            }
+            
+            isValid = true;
+            return true;
+        }
+        
+        // Get pixel at specific coordinates with bounds checking
+        uint32_t getPixel(int x, int y) const {
+            if (!isValid || x < 0 || y < 0 || x >= width || y >= height) {
+                return 0x00000000; // Black default
+            }
+            return pixels[y * width + x];
+        }
+    };
+    
+    // Global wallpaper image instance
+    static BitmapImage wallpaperImage;
+
     // Configuration implementation
     void Configuration::loadDefaults() {
         keybinds.loadDefaults();
-        
-        display.autoDistributeWindows = true;
-        display.displayAssignmentStrategy = "round_robin";
-        display.primaryDisplayId = 0;
+        display.loadDefaults();
         
         input.enableGlobalKeybinds = true;
         input.passUnhandledInput = true;
@@ -493,6 +606,38 @@ namespace config {
                         addKeybind(key, action, "Loaded from config");
                     }
                 }
+            } else if (colonPos != std::string::npos && section == "display") {
+                // Parse display settings
+                size_t keyStart = line.find('"');
+                size_t keyEnd = line.find('"', keyStart + 1);
+                size_t valueStart = line.find('"', colonPos);
+                size_t valueEnd = line.find('"', valueStart + 1);
+                
+                if (keyStart != std::string::npos && keyEnd != std::string::npos) {
+                    std::string key = line.substr(keyStart + 1, keyEnd - keyStart - 1);
+                    
+                    if (key == "backgroundColor" && valueStart != std::string::npos && valueEnd != std::string::npos) {
+                        config.display.backgroundColor = line.substr(valueStart + 1, valueEnd - valueStart - 1);
+                        // Convert hex string to RGB value
+                        config.display.backgroundColorRGB = parseHexColor(config.display.backgroundColor);
+                    } else if (key == "wallpaperPath" && valueStart != std::string::npos && valueEnd != std::string::npos) {
+                        config.display.wallpaperPath = line.substr(valueStart + 1, valueEnd - valueStart - 1);
+                    } else if (key == "autoDistributeWindows") {
+                        // Parse boolean value
+                        size_t boolStart = line.find_first_of("tf", colonPos); // true/false
+                        if (boolStart != std::string::npos) {
+                            config.display.autoDistributeWindows = line.substr(boolStart, 4) == "true";
+                        }
+                    } else if (key == "displayAssignmentStrategy" && valueStart != std::string::npos && valueEnd != std::string::npos) {
+                        config.display.displayAssignmentStrategy = line.substr(valueStart + 1, valueEnd - valueStart - 1);
+                    } else if (key == "primaryDisplayId") {
+                        // Parse numeric value
+                        size_t numStart = line.find_first_of("0123456789", colonPos);
+                        if (numStart != std::string::npos) {
+                            config.display.primaryDisplayId = std::stoul(line.substr(numStart));
+                        }
+                    }
+                }
             }
         }
         
@@ -550,7 +695,9 @@ namespace config {
         file << "  \"display\": {\n";
         file << "    \"autoDistributeWindows\": " << (config.display.autoDistributeWindows ? "true" : "false") << ",\n";
         file << "    \"displayAssignmentStrategy\": \"" << config.display.displayAssignmentStrategy << "\",\n";
-        file << "    \"primaryDisplayId\": " << config.display.primaryDisplayId << "\n";
+        file << "    \"primaryDisplayId\": " << config.display.primaryDisplayId << ",\n";
+        file << "    \"backgroundColor\": \"" << config.display.backgroundColor << "\",\n";
+        file << "    \"wallpaperPath\": \"" << config.display.wallpaperPath << "\"\n";
         file << "  },\n";
         file << "  \"input\": {\n";
         file << "    \"enableGlobalKeybinds\": " << (config.input.enableGlobalKeybinds ? "true" : "false") << ",\n";
@@ -832,6 +979,48 @@ namespace config {
                 result = manager.getAllKeybinds();
             });
             return result;
+        }
+        
+        uint32_t getBackgroundColor() {
+            uint32_t result = 0x00000000;
+            configManager([&result](ConfigurationManager& manager) {
+                result = manager.getConfiguration().display.backgroundColorRGB;
+            });
+            return result;
+        }
+        
+        std::string getWallpaperPath() {
+            std::string result;
+            configManager([&result](ConfigurationManager& manager) {
+                result = manager.getConfiguration().display.wallpaperPath;
+            });
+            return result;
+        }
+        
+        bool loadWallpaper(const std::string& wallpaperPath) {
+            if (wallpaperPath.empty()) {
+                wallpaperImage.isValid = false;
+                return true; // No wallpaper is valid
+            }
+            
+            if (wallpaperImage.loadFromFile(wallpaperPath)) {
+                LOG_INFO() << "Wallpaper loaded successfully: " << wallpaperPath << " (" 
+                          << wallpaperImage.width << "x" << wallpaperImage.height << ")" << std::endl;
+                return true;
+            } else {
+                LOG_ERROR() << "Failed to load wallpaper: " << wallpaperPath << std::endl;
+                wallpaperImage.isValid = false;
+                return false;
+            }
+        }
+        
+        bool getWallpaperPixel(int x, int y, uint32_t& pixel) {
+            if (!wallpaperImage.isValid) {
+                return false;
+            }
+            
+            pixel = wallpaperImage.getPixel(x, y);
+            return true;
         }
     }
 

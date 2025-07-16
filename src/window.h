@@ -35,6 +35,22 @@ namespace window {
     extern bool isValidDisplayId(uint32_t displayId);
     extern types::iVector2 getDisplayResolution(uint32_t displayId);
 
+    namespace stain {
+        enum class type {
+            clear           = 0 << 0,
+            resize          = 1 << 0,
+            closed          = 1 << 1,
+        };
+
+        constexpr bool has(stain::type a, stain::type b) {
+            return (static_cast<int>(a) & static_cast<int>(b)) != 0;
+        }
+
+        constexpr bool is(stain::type a, stain::type b) {
+            return (static_cast<int>(a) & static_cast<int>(b)) == static_cast<int>(b);
+        }
+    }
+
     /*
     As each GGUI gets its input from the terminal hosting it. We currently need to first instate a new terminal and then host GGUI on top of it, for GGUI to get input from it.
     We can later on, give each handle Focused mode, and perpetrate the inputs from here and give them through sockets to each individual GGUI instance. 
@@ -43,9 +59,11 @@ namespace window {
     public:
         // I'm not sure where we can get the position of hosting terminal for the current GGUI handle, this will be more important once we start to give inputs from here and ditch terminal hosting.
         position preset;   // Z represents draw order, higher = later draw.
+        position previousPreset;  // Previous position preset for resize stain system
+        constexpr static unsigned int maxAllowedErrorCount = 10;
         unsigned int errorCount;
 
-        constexpr static unsigned int maxAllowedErrorCount = 10;
+        stain::type dirty;
 
         float zoom;          // 1.0f is the default 100% scale.
 
@@ -61,7 +79,7 @@ namespace window {
 
         std::unique_ptr<font::font> customFont = nullptr;
 
-        handle(tcp::connection&& conn) : preset(position::FULLSCREEN), errorCount(0), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>()), displayId(0) {}
+        handle(tcp::connection&& conn) : preset(position::FULLSCREEN), previousPreset(position::FULLSCREEN), errorCount(0), dirty(stain::type::clear), zoom(1.0f), connection(std::move(conn)), name(""), cellBuffer(new std::vector<types::Cell>()), displayId(0) {}
 
         ~handle() {
             delete cellBuffer;
@@ -80,6 +98,12 @@ namespace window {
         void poll();
 
         font::font* getFont() const;
+
+        // for staining
+        void set(stain::type t, bool val);
+        
+        // Resize stain system - get area that needs to be cleared
+        types::rectangle getResizeClearArea() const;
         
         // Display management methods
         void setDisplayId(uint32_t newDisplayId) { displayId = newDisplayId; }

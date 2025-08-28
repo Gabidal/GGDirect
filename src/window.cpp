@@ -60,6 +60,7 @@
 #include <atomic>
 #include <chrono>
 #include <fcntl.h>
+#include <algorithm>
 
 namespace window {
 
@@ -883,14 +884,17 @@ namespace window {
     }
 
     manager::DisplayAssignmentStrategy getStrategy(std::string_view raw) {
-        if (raw == "ROUND_ROBIN") {
+        std::string toUpper(raw);
+        std::transform(toUpper.begin(), toUpper.end(), toUpper.begin(), [](unsigned char c){ return std::toupper(c); });
+
+        if (toUpper == "ROUND_ROBIN") {
             return manager::DisplayAssignmentStrategy::ROUND_ROBIN;
-        } else if (raw == "PRIMARY_ONLY") {
+        } else if (toUpper == "PRIMARY_ONLY") {
             return manager::DisplayAssignmentStrategy::PRIMARY_ONLY;
-        } else if (raw == "FILL_THEN_NEXT") {
+        } else if (toUpper == "FILL_THEN_NEXT") {
             return manager::DisplayAssignmentStrategy::FILL_THEN_NEXT;
         } else {
-            LOG_ERROR() << "Unknown display assignment strategy: " << raw << ", defaulting to ROUND_ROBIN" << std::endl;
+            LOG_ERROR() << "Unknown display assignment strategy: " << toUpper << ", defaulting to ROUND_ROBIN" << std::endl;
             return manager::DisplayAssignmentStrategy::ROUND_ROBIN;
         }
     }

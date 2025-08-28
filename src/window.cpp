@@ -50,6 +50,7 @@
 #include "display.h"
 #include "font.h"
 #include "logger.h"
+#include "config.h"
 
 #include <cstdio>
 #include <cstdint>
@@ -111,6 +112,18 @@ namespace window {
         else if (pos == position::BOTTOM) {
             return {{0, currentDisplayResolution.y / 2}, {currentDisplayResolution.x, currentDisplayResolution.y / 2}};
         } 
+        else if (pos == position::TOP_LEFT) {
+            return {{0, 0}, {currentDisplayResolution.x / 2, currentDisplayResolution.y / 2}};
+        } 
+        else if (pos == position::TOP_RIGHT) {
+            return {{currentDisplayResolution.x / 2, 0}, {currentDisplayResolution.x / 2, currentDisplayResolution.y / 2}};
+        } 
+        else if (pos == position::BOTTOM_LEFT) {
+            return {{0, currentDisplayResolution.y / 2}, {currentDisplayResolution.x / 2, currentDisplayResolution.y / 2}};
+        } 
+        else if (pos == position::BOTTOM_RIGHT) {
+            return {{currentDisplayResolution.x / 2, currentDisplayResolution.y / 2}, {currentDisplayResolution.x / 2, currentDisplayResolution.y / 2}};
+        }
         else {
             throw std::invalid_argument("Invalid position type");
         }
@@ -413,80 +426,46 @@ namespace window {
                                     }
                                 }
                                 
-                                LOG_VERBOSE() << "Waiting for GGUI client connection..." << std::endl;
+                                LOG_VERBOSE() << "Waiting for GGUI client connections..." << std::endl;
                                 
                                 try {
                                     tcp::connection conn = listenerRef.Accept();
-                                    LOG_VERBOSE() << "Accepted connection from GGUI client" << std::endl;
+                                    LOG_VERBOSE() << "initiating GGUI handshake..." << std::endl;
                                     
                                     // Process the connection normally...
                                     // We will first listen for GGUI to give its own port to establish an personal connection to this specific GGUI client
-                                uint16_t gguiPort;
-                                if (!conn.Receive(&gguiPort)) {
-                                    LOG_ERROR() << "Failed to receive GGUI port" << std::endl;
-                                    return;
-                                }
+                                    uint16_t gguiPort;
+                                    if (!conn.Receive(&gguiPort)) {
+                                        LOG_ERROR() << "Failed to receive GGUI port" << std::endl;
+                                        return;
+                                    }
 
-                                LOG_VERBOSE() << "Received GGUI port: " << gguiPort << std::endl;
+                                    LOG_VERBOSE() << "Received GGUI port: " << gguiPort << std::endl;
 
-                                // Now we can create a new connection with this new port
-                                tcp::connection gguiConnection = tcp::sender::getConnection(gguiPort);
-                                
-                                LOG_VERBOSE() << "Established connection to GGUI on port " << gguiPort << std::endl;
-                                
-                                // Set the connection to non-blocking mode for better performance
-                                if (!gguiConnection.setNonBlocking()) {
-                                    LOG_ERROR() << "Warning: Failed to set connection to non-blocking mode" << std::endl;
-                                }
-
-                                // Before going to the next connection, we need to send confirmation back to the GGUI that we have accepted the connection
-                                if (!gguiConnection.Send(&gguiPort)) {
-                                    LOG_ERROR() << "Failed to send confirmation to GGUI" << std::endl;
-                                    return;
-                                }
-
-                                LOG_VERBOSE() << "Sent confirmation to GGUI" << std::endl;
-
-                                // Now we can send the first packet to GGUI client, and it is the size of it at fullscreen.
-                                types::rectangle windowRectangle = positionToCellCoordinates(position::FULLSCREEN, getPrimaryDisplayId());
-
-                                types::sVector2 dimensionsInCells = {
-                                    windowRectangle.size.x,
-                                    windowRectangle.size.y
-                                };
-
-                                LOG_VERBOSE() << "Sending initial dimensions to GGUI client: " 
-                                          << dimensionsInCells.x << "x" << dimensionsInCells.y << " cells" << std::endl;
-
-                                // Create resize packet with data
-                                char packetBuffer[packet::size];
-                                packet::resize::base newsize{dimensionsInCells};
-                                // we write the inform into the packet buffer
-                                memcpy(packetBuffer, &newsize, sizeof(newsize));
-
-                                // Send the resize packet
-                                if (!gguiConnection.Send(packetBuffer, packet::size)) {
-                                    LOG_ERROR() << "Failed to send resize packet to GGUI" << std::endl;
-                                    return;
-                                }
-
-                                // Create a new handle for this connection
-                                handles([&gguiConnection](std::vector<handle>& self){
-                                    self.emplace_back(std::move(gguiConnection));
+                                    // Now we can create a new connection with this new port
+                                    tcp::connection gguiConnection = tcp::sender::getConnection(gguiPort);
                                     
-                                    // Set the display ID for the new handle to the primary display
-                                    auto& newHandle = self.back();
-                                    newHandle.setDisplayId(getPrimaryDisplayId());
+                                    LOG_VERBOSE() << "Established connection to GGUI on port " << gguiPort << std::endl;
                                     
-                                    // Verify that the handle has the same dimensions as what we sent
-                                    types::rectangle testRect = newHandle.getCellCoordinates();
-                                    LOG_VERBOSE() << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
+                                    // Set the connection to non-blocking mode for better performance
+                                    if (!gguiConnection.setNonBlocking()) {
+                                        LOG_ERROR() << "Warning: Failed to set connection to non-blocking mode" << std::endl;
+                                    }
+
+                                    // Before going to the next connection, we need to send confirmation back to the GGUI that we have accepted the connection
+                                    if (!gguiConnection.Send(&gguiPort)) {
+                                        LOG_ERROR() << "Failed to send confirmation to GGUI" << std::endl;
+                                        return;
+                                    }
+
+                                    LOG_VERBOSE() << "Handshake complete!" << std::endl;
                                     
-                                    // Always set the new client as the new focused handle.
-                                    setFocusedHandle(&newHandle);
-                                    
-                                    logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
-                                });
+                                    // Create a new handle for this connection
+                                    handles([&gguiConnection](std::vector<handle>& self){
+                                        self.emplace_back(std::move(gguiConnection));
+
+                                        assignDisplaysToHandles(self);
+                                    });
                                 } catch (const std::runtime_error& e) {
                                     // This is expected when no connections are pending (non-blocking mode)
                                     // We'll just continue and check again in the next iteration
@@ -657,44 +636,169 @@ namespace window {
         }
 
         // Display assignment strategies
-        void assignDisplaysToHandles(DisplayAssignmentStrategy strategy) {
-            handles([strategy](std::vector<handle>& self) {
-                if (self.empty() || display::manager::activeDisplays.empty()) {
-                    return;
-                }
-                
-                std::vector<uint32_t> displayIds = getAvailableDisplayIds();
-                if (displayIds.empty()) {
-                    return;
-                }
-                
-                switch (strategy) {
-                    case DisplayAssignmentStrategy::ROUND_ROBIN:
-                        for (size_t i = 0; i < self.size(); ++i) {
-                            uint32_t displayId = displayIds[i % displayIds.size()];
-                            self[i].setDisplayId(displayId);
-                        }
-                        break;
-                        
-                    case DisplayAssignmentStrategy::PRIMARY_ONLY:
-                        for (auto& handle : self) {
-                            handle.setDisplayId(getPrimaryDisplayId());
-                        }
-                        break;
-                        
-                    case DisplayAssignmentStrategy::FILL_THEN_NEXT:
-                        // This could be expanded to consider screen real estate
-                        // For now, just do round-robin
-                        for (size_t i = 0; i < self.size(); ++i) {
-                            uint32_t displayId = displayIds[i % displayIds.size()];
-                            self[i].setDisplayId(displayId);
-                        }
-                        break;
-                }
-                
-                LOG_VERBOSE() << "Assigned displays to " << self.size() << " handles using strategy " 
-                              << static_cast<int>(strategy) << std::endl;
+        void assignDisplaysToHandles(std::vector<handle>& windowHandles) {
+            if (windowHandles.empty() || display::manager::activeDisplays.empty()) {
+                return;
+            }
+            
+            std::vector<uint32_t> displayIds = getAvailableDisplayIds();
+            if (displayIds.empty()) {
+                return;
+            }
+            
+            DisplayAssignmentStrategy strategy = DisplayAssignmentStrategy::FILL_THEN_NEXT;
+
+            // Load from config the user or default strategy
+            config::manager::configManager([&strategy](config::ConfigurationManager& manager){
+                std::string_view rawStrategy = manager.getConfiguration().display.displayAssignmentStrategy;
+
+                strategy = getStrategy(rawStrategy);
             });
+            
+            switch (strategy) {
+                case DisplayAssignmentStrategy::ROUND_ROBIN:
+                    for (size_t i = 0; i < windowHandles.size(); ++i) {
+                        uint32_t displayId = displayIds[i % displayIds.size()];
+                        windowHandles[i].setDisplayId(displayId);
+                    }
+                    break;
+                    
+                case DisplayAssignmentStrategy::PRIMARY_ONLY:
+                    for (auto& handle : windowHandles) {
+                        handle.setDisplayId(getPrimaryDisplayId());
+                    }
+                    break;
+                    
+                case DisplayAssignmentStrategy::FILL_THEN_NEXT:
+                    fitHandlesToDisplay(windowHandles, displayIds);
+                    break;
+            }
+            
+            LOG_VERBOSE() << "Assigned displays to " << windowHandles.size() << " handles using strategy " << static_cast<int>(strategy) << std::endl;
+        }
+
+        // Professional tiling layout patterns - helper function
+        void applyTilingLayout(std::vector<handle>& windowHandles, const std::vector<size_t>& windowIndices, uint32_t displayId) {
+            size_t windowCount = windowIndices.size();
+            
+            LOG_VERBOSE() << "Applying tiling layout for " << windowCount << " windows on display " << displayId << std::endl;
+
+            switch (windowCount) {
+                case 1:
+                    // Single window: fullscreen
+                    assignNewWindowToDisplay(windowHandles[windowIndices[0]], position::FULLSCREEN);
+                    break;
+
+                case 2:
+                    // Two windows: vertical split (left/right)
+                    // Newest window (last in list) gets the preferred RIGHT position
+                    assignNewWindowToDisplay(windowHandles[windowIndices[0]], position::LEFT);
+                    assignNewWindowToDisplay(windowHandles[windowIndices[1]], position::RIGHT);
+                    break;
+
+                case 3:
+                    // Three windows: main window on left, two stacked on right
+                    // Newest window gets the preferred BOTTOM_RIGHT position
+                    assignNewWindowToDisplay(windowHandles[windowIndices[0]], position::LEFT);
+                    assignNewWindowToDisplay(windowHandles[windowIndices[1]], position::TOP_RIGHT);
+                    assignNewWindowToDisplay(windowHandles[windowIndices[2]], position::BOTTOM_RIGHT);
+                    break;
+
+                case 4:
+                    // Four windows: perfect quarter layout
+                    // Newest window gets the preferred BOTTOM_RIGHT position (most accessible)
+                    assignNewWindowToDisplay(windowHandles[windowIndices[0]], position::TOP_LEFT);
+                    assignNewWindowToDisplay(windowHandles[windowIndices[1]], position::TOP_RIGHT);
+                    assignNewWindowToDisplay(windowHandles[windowIndices[2]], position::BOTTOM_LEFT);
+                    assignNewWindowToDisplay(windowHandles[windowIndices[3]], position::BOTTOM_RIGHT);
+                    break;
+
+                default:
+                    // Fallback for more than 4 windows: assign fullscreen
+                    for (size_t idx : windowIndices) {
+                        assignNewWindowToDisplay(windowHandles[idx], position::FULLSCREEN);
+                    }
+                    break;
+            }
+        }
+
+        void fitHandlesToDisplay(std::vector<handle>& windowHandles, std::vector<uint32_t>& displayIds) {
+            // Professional tiling window manager with smart positioning
+            // The newest handle is the last member in the handles list and gets priority placement
+
+            // Track which handles get assigned to each display (indices into handles)
+            std::map<uint32_t, std::vector<size_t>> perDisplay;
+
+            size_t displayCursor = 0; // index into displayIds for selecting next display to fill
+
+            for (size_t i = 0; i < windowHandles.size(); ++i) {
+                // Find next display that still has <4 windows assigned (supports up to 4 windows per display)
+                while (displayCursor < displayIds.size() && perDisplay[displayIds[displayCursor]].size() >= 4) {
+                    ++displayCursor;
+                }
+
+                uint32_t targetDisplayId;
+                bool overflow = false;
+                if (displayCursor < displayIds.size()) {
+                    targetDisplayId = displayIds[displayCursor];
+                } else {
+                    // All displays fully utilized (4 windows). Fallback: round-robin placement.
+                    overflow = true;
+                    targetDisplayId = displayIds[i % displayIds.size()];
+                }
+
+                windowHandles[i].setDisplayId(targetDisplayId);
+
+                if (overflow) {
+                    // Log overflow and assign as fullscreen overlay
+                    LOG_INFO() << "Display " << targetDisplayId << " already has 4 handles; additional handle will overlay." << std::endl;
+                    assignNewWindowToDisplay(windowHandles[i], position::FULLSCREEN);
+                    perDisplay[targetDisplayId].push_back(i);
+                    continue;
+                }
+
+                // Add to display tracking
+                auto &vec = perDisplay[targetDisplayId];
+                vec.push_back(i);
+
+                // Apply professional tiling layout based on number of windows
+                applyTilingLayout(windowHandles, vec, targetDisplayId);
+            }
+        }
+
+        // This function setups the new window in the GGDirect space, so that it fits well with other open windows.
+        void assignNewWindowToDisplay(handle& newHandle, position pos) {    
+            newHandle.preset = pos;
+            
+            types::rectangle windowRectangle = positionToCellCoordinates(pos, newHandle.getDisplayId());
+
+            types::sVector2 dimensionsInCells = {
+                windowRectangle.size.x,
+                windowRectangle.size.y
+            };
+
+            LOG_VERBOSE() << "Sending initial dimensions to GGUI client: " << dimensionsInCells.x << "x" << dimensionsInCells.y << " cells" << std::endl;
+
+            // Create resize packet with data
+            char packetBuffer[packet::size];
+            packet::resize::base newsize{dimensionsInCells};
+            // we write the inform into the packet buffer
+            memcpy(packetBuffer, &newsize, sizeof(newsize));
+
+            // Send the resize packet
+            if (!newHandle.connection.Send(packetBuffer, packet::size)) {
+                LOG_ERROR() << "Failed to send resize packet to GGUI" << std::endl;
+                return;
+            }
+            
+            // Verify that the handle has the same dimensions as what we sent
+            types::rectangle testRect = newHandle.getCellCoordinates();
+            LOG_VERBOSE() << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
+            
+            // Always set the new client as the new focused handle.
+            setFocusedHandle(&newHandle);
+            
+            logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
         }
         
         // Display monitoring and updates
@@ -775,6 +879,19 @@ namespace window {
                     }
                 }
             });
+        }
+    }
+
+    manager::DisplayAssignmentStrategy getStrategy(std::string_view raw) {
+        if (raw == "ROUND_ROBIN") {
+            return manager::DisplayAssignmentStrategy::ROUND_ROBIN;
+        } else if (raw == "PRIMARY_ONLY") {
+            return manager::DisplayAssignmentStrategy::PRIMARY_ONLY;
+        } else if (raw == "FILL_THEN_NEXT") {
+            return manager::DisplayAssignmentStrategy::FILL_THEN_NEXT;
+        } else {
+            LOG_ERROR() << "Unknown display assignment strategy: " << raw << ", defaulting to ROUND_ROBIN" << std::endl;
+            return manager::DisplayAssignmentStrategy::ROUND_ROBIN;
         }
     }
 

@@ -37,7 +37,6 @@ int main(int argc, char* argv[]) {
 
     // DRM::system::cleanup();
 
-
     // Keep the main thread alive and check for shutdown conditions
     while (true) {
         // if (window::manager::getFocusedHandle()){

@@ -544,6 +544,7 @@ namespace config {
         return false;
     }
 
+    // Loads custom or user given configuration and then saves it back if empty.
     bool ConfigurationManager::save(const std::string& configPath) const {
         std::string path = configPath.empty() ? configFilePath : configPath;
         if (path.empty()) {

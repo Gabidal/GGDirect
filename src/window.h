@@ -15,8 +15,11 @@ namespace window {
     // In GGDirect, we dont give free positions to each window, instead we put them into interchangable predefined presets, defined as:
     enum class position {
         FULLSCREEN,
-        LEFT, RIGHT,    // anchored half of the screen either to the right or left
-        TOP, BOTTOM,    // anchored half of the screen either at the top or at the bottom
+        LEFT, RIGHT,                // anchored half of the screen either to the right or left
+        TOP, BOTTOM,                // anchored half of the screen either at the top or at the bottom
+        // corner positions
+        TOP_LEFT, TOP_RIGHT,        // anchored quarter of the screen at the top left or top right
+        BOTTOM_LEFT, BOTTOM_RIGHT,  // anchored quarter of the screen at the bottom left or bottom right
     };
 
     // Forward declaration for the handle class
@@ -186,13 +189,22 @@ namespace window {
             PRIMARY_ONLY,   // All handles go to primary display
             FILL_THEN_NEXT  // Fill one display before moving to next
         };
-        extern void assignDisplaysToHandles(DisplayAssignmentStrategy strategy = DisplayAssignmentStrategy::ROUND_ROBIN);
+        extern void assignDisplaysToHandles(std::vector<handle>& windowHandles);
+        extern void fitHandlesToDisplay(std::vector<handle>& windowHandles, std::vector<uint32_t>& displayIds);
+        
+        // Professional tiling layout helper function
+        extern void applyTilingLayout(std::vector<handle>& windowHandles, const std::vector<size_t>& windowIndices, uint32_t displayId);
+
+        // New window assignment controller
+        extern void assignNewWindowToDisplay(handle& newHandle, position pos);
         
         // Display monitoring and updates
         extern void updateHandleDisplays();
         extern std::map<uint32_t, size_t> getHandleDistribution();
         extern void printHandleDisplayMapping();
     };
+
+    extern manager::DisplayAssignmentStrategy getStrategy(std::string_view raw);
 }
 
 #endif

@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "types.h"
+#include "logger.h"
 
 
 namespace packet {
@@ -523,7 +524,7 @@ namespace tcp {
             // Enable TCP_NODELAY for lower latency on accepted connections
             int nodelay = 1;
             if (setsockopt(connFd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) < 0) {
-                std::cerr << "Warning: Failed to enable TCP_NODELAY on accepted connection: " << strerror(errno) << std::endl;
+                LOG_ERROR() << "Warning: Failed to enable TCP_NODELAY on accepted connection: " << strerror(errno) << std::endl;
             }
             
             return connection(connFd);

@@ -2,47 +2,6 @@
  * Window Display Management System
  * 
  * This module provides professional display management for window handles.
- * 
- * Key improvements over the original hardcoded approach:
- * 
- * 1. Dynamic Display D            } else if (notifyPacket->notifyType == packet::notify::type::CLOSED) {
-                LOG_VERBOSE() << "Received closed notification, shutting down connection" << std::endl;
-                connection.close();
-                // Mark this handle for removal
-                delete[] packetBuffer;
-                return;  // Skip to the next handleion:
- *    - Automatically detects and works with multiple displays
- *    - Handles display hotplug events gracefully
- *    - Fallback to primary display when requested display is unavailable
- * 
- * 2. Professional Architecture:
- *    - Each handle tracks its associated display ID
- *    - Utility functions for display validation and resolution querying
- *    - Multiple display assignment strategies (round-robin, primary-only, etc.)
- * 
- * 3. Enhanced Error Handling:
- *    - Graceful handling of no-display scenarios
- *    - Automatic migration of handles when displays are disconnected
- *    - Comprehensive logging for debugging
- * 
- * 4. Flexible API:
- *    - Backward compatible with existing code
- *    - New handle-based positioning for better context
- *    - Utility functions for display management
- * 
- * Usage Examples:
- * 
- *   // Get coordinates for a handle (uses handle's assigned display)
- *   types::rectangle coords = handle.getCoordinates();
- *   
- *   // Position on specific display
- *   types::rectangle coords = positionToCoordinates(position::LEFT, displayId);
- *   
- *   // Distribute handles across displays
- *   window::manager::assignDisplaysToHandles(window::manager::DisplayAssignmentStrategy::ROUND_ROBIN);
- *   
- *   // Move a handle to a specific display
- *   window::manager::moveHandleToDisplay(&handle, displayId);
  */
 
 #include "window.h"
@@ -414,6 +373,8 @@ namespace window {
 
                 // Now we will start listening for connections
                 std::thread reception = std::thread([]() {
+                    LOG_VERBOSE() << "Waiting for GGUI client connections..." << std::endl;
+
                     while (!shouldShutdown.load()) {
                         try {
                             // Use the atomic guard to safely access the listener and get a connection
@@ -426,8 +387,6 @@ namespace window {
                                         fcntl(listenerFd, F_SETFL, flags | O_NONBLOCK);
                                     }
                                 }
-                                
-                                LOG_VERBOSE() << "Waiting for GGUI client connections..." << std::endl;
                                 
                                 try {
                                     tcp::connection conn = listenerRef.Accept();
@@ -473,7 +432,6 @@ namespace window {
                                     std::string error_msg = e.what();
                                     if (error_msg.find("Failed to accept connection") != std::string::npos) {
                                         // No connection pending, this is normal in non-blocking mode
-                                        LOG_VERBOSE() << "No pending connections, continuing..." << std::endl;
                                         return;
                                     } else {
                                         // Some other error, log it
@@ -649,31 +607,16 @@ namespace window {
             
             DisplayAssignmentStrategy strategy = DisplayAssignmentStrategy::FILL_THEN_NEXT;
 
-            // Load from config the user or default strategy
-            config::manager::configManager([&strategy](config::ConfigurationManager& manager){
-                std::string_view rawStrategy = manager.getConfiguration().display.displayAssignmentStrategy;
+            // Strategies are disabled for now, default to FILL_THEN_NEXT mode.
 
-                strategy = getStrategy(rawStrategy);
-            });
+            // Load from config the user or default strategy
+            // config::manager::configManager([&strategy](config::ConfigurationManager& manager){
+            //     std::string_view rawStrategy = manager.getConfiguration().display.displayAssignmentStrategy;
+
+            //     strategy = getStrategy(rawStrategy);
+            // });
             
-            switch (strategy) {
-                case DisplayAssignmentStrategy::ROUND_ROBIN:
-                    for (size_t i = 0; i < windowHandles.size(); ++i) {
-                        uint32_t displayId = displayIds[i % displayIds.size()];
-                        windowHandles[i].setDisplayId(displayId);
-                    }
-                    break;
-                    
-                case DisplayAssignmentStrategy::PRIMARY_ONLY:
-                    for (auto& handle : windowHandles) {
-                        handle.setDisplayId(getPrimaryDisplayId());
-                    }
-                    break;
-                    
-                case DisplayAssignmentStrategy::FILL_THEN_NEXT:
-                    fitHandlesToDisplay(windowHandles, displayIds);
-                    break;
-            }
+            fitHandlesToDisplay(windowHandles, displayIds);
             
             LOG_VERBOSE() << "Assigned displays to " << windowHandles.size() << " handles using strategy " << static_cast<int>(strategy) << std::endl;
         }
@@ -792,14 +735,10 @@ namespace window {
                 return;
             }
             
-            // Verify that the handle has the same dimensions as what we sent
-            types::rectangle testRect = newHandle.getCellCoordinates();
-            LOG_VERBOSE() << "New handle cell coordinates: " << testRect.size.x << "x" << testRect.size.y << std::endl;
-            
             // Always set the new client as the new focused handle.
             setFocusedHandle(&newHandle);
             
-            logger::info("Created GGUI connection on display " + std::to_string(newHandle.getDisplayId()));
+            LOG_VERBOSE() << "Created GGUI connection on display " << std::to_string(newHandle.getDisplayId()) << std::endl;
         }
         
         // Display monitoring and updates

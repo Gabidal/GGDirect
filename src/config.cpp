@@ -378,7 +378,7 @@ namespace config {
     // DisplaySettings implementation
     void DisplaySettings::loadDefaults() {
         autoDistributeWindows = true;
-        displayAssignmentStrategy = "round_robin";
+        displayAssignmentStrategy = "FILL_THEN_NEXT";
         primaryDisplayId = 0;
         backgroundColor = "#000000";      // Default black background
         wallpaperPath = "";               // No wallpaper by default

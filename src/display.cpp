@@ -1216,11 +1216,8 @@ namespace display {
             drmEventContext evctx;
             memset(&evctx, 0, sizeof(evctx));
             evctx.version = DRM_EVENT_CONTEXT_VERSION;
-            evctx.page_flip_handler = [](int fd, unsigned int sequence, unsigned int tv_sec, 
-                                        unsigned int tv_usec, void* user_data) {
-                // This lambda will be called when a page flip completes
-                (void)fd; (void)tv_sec; (void)tv_usec; // Suppress unused parameter warnings
-                
+            // This lambda will be called when a page flip completes
+            evctx.page_flip_handler = []([[maybe_unused]] int fd, unsigned int sequence, [[maybe_unused]] unsigned int tv_sec, [[maybe_unused]] unsigned int tv_usec, void* user_data) {
                 // If we have a page flip handler, call it
                 if (manager::Device && manager::Device->pageFlipHandler) {
                     manager::Device->pageFlipHandler(0, sequence, user_data);
@@ -1742,8 +1739,7 @@ namespace display {
         
         // Set up page flip completion handler to track pending state
         if (Device) {
-            Device->setPageFlipHandler([](uint32_t crtc_id, uint32_t sequence, void* user_data) {
-                (void)crtc_id; (void)sequence; (void)user_data; // Suppress unused parameter warnings
+            Device->setPageFlipHandler([]([[maybe_unused]] uint32_t crtc_id, [[maybe_unused]] uint32_t sequence, [[maybe_unused]] void* user_data) {
                 pageFlipPending = false; // Reset pending state when page flip completes
                 LOG_VERBOSE() << "Page flip completed" << std::endl;
             });

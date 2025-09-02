@@ -114,11 +114,6 @@ namespace window {
         cellRect.size.x = pixelRect.size.x / cellWidth;
         cellRect.size.y = pixelRect.size.y / cellHeight;
         
-        LOG_VERBOSE() << "Position " << static_cast<int>(pos) 
-                      << " -> Pixel: " << pixelRect.size.x << "x" << pixelRect.size.y 
-                      << " -> Cell: " << cellRect.size.x << "x" << cellRect.size.y 
-                      << " (cell size: " << cellWidth << "x" << cellHeight << ")" << std::endl;
-        
         return cellRect;
     }
 
@@ -155,11 +150,6 @@ namespace window {
                 LOG_VERBOSE() << "Resized cell buffer to " << requiredSize << " cells (" 
                               << dimensionsInCells.x << "x" << dimensionsInCells.y << ")" << std::endl;
             }
-
-            // Debug: Show current buffer state
-            LOG_VERBOSE() << "Poll: Buffer size=" << cellBuffer->size() 
-                          << ", Required=" << requiredSize 
-                          << ", Dimensions=" << dimensionsInCells.x << "x" << dimensionsInCells.y << std::endl;
 
             // Now we'll get the buffer data from the GGUI client.
             if (!cellBuffer || cellBuffer->empty()) {

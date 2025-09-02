@@ -193,8 +193,8 @@ namespace renderer {
         std::thread renderingThread([](){
             size_t frameCounter = 0;
             auto lastLogTime = std::chrono::high_resolution_clock::now();
-            int framesRendered = 0;
-            int totalFrames = 0;
+            size_t framesRendered = 0;
+            size_t totalFrames = 0;
             
             while (!shouldExit) {
                 bool needsPresent = false;
@@ -286,8 +286,8 @@ namespace renderer {
                 auto now = std::chrono::high_resolution_clock::now();
                 auto timeSinceLastLog = std::chrono::duration_cast<std::chrono::seconds>(now - lastLogTime);
                 if (timeSinceLastLog.count() >= 5) {
-                    double avgFPS = static_cast<double>(totalFrames) / timeSinceLastLog.count();
-                    double renderRate = static_cast<double>(framesRendered) / timeSinceLastLog.count();
+                    float avgFPS = static_cast<float>(totalFrames) / timeSinceLastLog.count();
+                    float renderRate = static_cast<float>(framesRendered) / timeSinceLastLog.count();
                     LOG_VERBOSE() << "Renderer stats: " << avgFPS << " FPS, " 
                                   << renderRate << " rendered FPS, " 
                                   << ((renderRate / avgFPS) * 100.0) << "% utilization" << std::endl;
@@ -302,14 +302,14 @@ namespace renderer {
                 auto frameTime = std::chrono::duration_cast<std::chrono::milliseconds>(frameEnd - frameStart);
                 
                 if (needsPresent) {
-                    // If we rendered something, aim for higher FPS (120 FPS = ~8ms)
-                    const auto targetFrameTime = std::chrono::milliseconds(32);
+                    // If we rendered something, aim for higher FPS (60 FPS = ~16ms)
+                    const auto targetFrameTime = std::chrono::milliseconds(16);
                     if (frameTime < targetFrameTime) {
                         std::this_thread::sleep_for(targetFrameTime - frameTime);
                     }
                 } else {
-                    // If nothing was rendered, sleep longer to reduce CPU usage (30 FPS = ~33ms)
-                    const auto idleFrameTime = std::chrono::milliseconds(128);
+                    // If nothing was rendered, sleep longer to reduce CPU usage (10 FPS = ~960ms)
+                    const auto idleFrameTime = std::chrono::milliseconds(16 * 60);
                     if (frameTime < idleFrameTime) {
                         std::this_thread::sleep_for(idleFrameTime - frameTime);
                     }

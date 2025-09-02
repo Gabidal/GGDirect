@@ -270,11 +270,41 @@ namespace tcp {
             fd_set readfds;
             FD_ZERO(&readfds);
             FD_SET(handle, &readfds);
-            
-            struct timeval timeout = {0, 0};  // No timeout, immediate return
-            
-            int result = select(handle + 1, &readfds, nullptr, nullptr, &timeout);
-            return result > 0 && FD_ISSET(handle, &readfds);
+
+            struct timeval timeout = {0, 0}; // immediate return
+            int sel = select(handle + 1, &readfds, nullptr, nullptr, &timeout);
+
+            if (sel <= 0) {
+                // -1 = error, 0 = no readiness
+                return false;
+            }
+
+            if (FD_ISSET(handle, &readfds)) {
+                char dummy;
+                ssize_t result = recv(handle, &dummy, 1, MSG_PEEK | MSG_DONTWAIT);
+
+                if (result > 0) {
+                    // Data is available
+                    return true;
+                } else if (result == 0) {
+                    // Connection closed by peer
+                    LOG_VERBOSE() << "Connection closed by peer" << std::endl;
+                    close();
+                    return false;
+                } else {
+                    if (errno == EWOULDBLOCK) {  // EAGAIN is same value
+                        // No data available right now
+                        return false;
+                    } else {
+                        // Some other error occurred, assume connection is bad
+                        LOG_ERROR() << "Socket error in hasDataAvailable: " << strerror(errno) << std::endl;
+                        close();
+                        return false;
+                    }
+                }
+            }
+
+            return false;
         }
 
         /**

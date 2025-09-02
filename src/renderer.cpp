@@ -290,7 +290,7 @@ namespace renderer {
                     float renderRate = static_cast<float>(framesRendered) / timeSinceLastLog.count();
                     LOG_VERBOSE() << "Renderer stats: " << avgFPS << " FPS, " 
                                   << renderRate << " rendered FPS, " 
-                                  << ((renderRate / avgFPS) * 100.0) << "% utilization" << std::endl;
+                                  << ((renderRate / avgFPS) * 100.0f) << "% utilization" << std::endl;
                     
                     lastLogTime = now;
                     framesRendered = 0;

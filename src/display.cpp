@@ -1908,10 +1908,10 @@ namespace display {
             static int frameCount = 0;
             frameCount++;
             
-            if (frameCount % 60 == 0) {  // Log every 60 frames (once per second at 60 FPS)
-                LOG_INFO() << "Headless mode: Frame " << frameCount << " rendered (" << 
-                             fb->getWidth() << "x" << fb->getHeight() << ")" << std::endl;
-            }
+            // if (frameCount % 60 == 0) {  // Log every 60 frames (once per second at 60 FPS)
+            //     LOG_INFO() << "Headless mode: Frame " << frameCount << " rendered (" << 
+            //                  fb->getWidth() << "x" << fb->getHeight() << ")" << std::endl;
+            // }
             
             return true;
         }
@@ -1952,7 +1952,7 @@ namespace display {
         // If page flip fails, disable it for future frames to avoid spam
         if (pageFlipSupported && !pageFlipPending) {
             pageFlipSupported = false;
-            LOG_INFO() << "Page flip not supported, using direct framebuffer updates" << std::endl;
+            // LOG_INFO() << "Page flip not supported, using direct framebuffer updates" << std::endl;
         }
         
         // Since we can't do page flipping, just update the framebuffer reference

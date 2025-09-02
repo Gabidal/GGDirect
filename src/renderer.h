@@ -7,7 +7,6 @@
 
 namespace renderer {
     extern void init();    // Sets up the rendering thread, which polls data from the handles and transform them into a renderable format for DRM.
-    extern void render(const window::handle* handle);
     extern bool renderHandle(const window::handle* handle);  // Returns true if rendering occurred
     extern void exit();
     

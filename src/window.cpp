@@ -166,8 +166,6 @@ namespace window {
             if (!connection.ReceiveNonBlocking(packetBuffer, packet::size + maximumBufferSize)) {
                 // No complete packet available, but check if we have any partial data that might indicate buffer misalignment
                 if (connection.hasDataAvailable()) {
-                    LOG_VERBOSE() << "Partial data detected in TCP buffer, may indicate buffer misalignment" << std::endl;
-                    
                     // If we've had recent errors, this might be misaligned data - consider flushing
                     if (errorCount > 0) {
                         flushTcpReceiveBuffer();

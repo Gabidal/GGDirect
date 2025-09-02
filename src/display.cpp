@@ -1741,7 +1741,6 @@ namespace display {
         if (Device) {
             Device->setPageFlipHandler([]([[maybe_unused]] uint32_t crtc_id, [[maybe_unused]] uint32_t sequence, [[maybe_unused]] void* user_data) {
                 pageFlipPending = false; // Reset pending state when page flip completes
-                LOG_VERBOSE() << "Page flip completed" << std::endl;
             });
         }
         

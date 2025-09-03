@@ -277,27 +277,8 @@ namespace renderer {
 
                     // Receive cell buffers and check for disconnected handles
                     for (int i = static_cast<int>(self.size()) - 1; i >= 0; i--) {
-                        bool removeHandle = false;
-
-                        if (self[i].connection.isClosed()) {
-                            // Connection was closed by client or network failure
-                            LOG_INFO() << "Handle " << i << " disconnected" << std::endl;
-                            removeHandle = true;
-                        }
-                        else if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
-                            // Handle has too many communication errors - likely disconnected
-                            LOG_ERROR() << "Handle " << i << " has excessive errors (" << 
-                                         self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << ")" << std::endl;
-                            self[i].close();
-                            removeHandle = true;
-                        }
-
-                        if (removeHandle) {
-                            self[i].set(window::stain::type::closed, true); // Mark area for clearing
-                        }
-                        else
-                            // Poll active handles for new data
-                            self[i].poll();
+                        // Poll active handles for new data
+                        self[i].poll();
                     }
 
                     // Render gotten cell buffers.

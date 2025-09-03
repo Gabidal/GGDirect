@@ -118,11 +118,22 @@ namespace window {
     }
 
     void handle::poll() {
+        // Self eliminate
+        if (errorCount > window::handle::maxAllowedErrorCount) {
+            // Handle has too many communication errors - likely disconnected
+            close();
+        }
+
         // Make sure the connection is non-blocking
         if (!connection.hasDataAvailable()) {
+            if (connection.isClosed()) {    // hasDataAvailable can close connection, so we need to check for it
+                set(window::stain::type::closed, true); // Mark area for clearing
+            }
+
             // No data available, return immediately to avoid blocking
             return;
         }
+
 
         // Check if we have an active resize stain - if so, skip this poll to avoid buffer misalignment
         if (stain::has(dirty, stain::type::resize)) {
@@ -170,6 +181,9 @@ namespace window {
                     if (errorCount > 0) {
                         flushTcpReceiveBuffer();
                     }
+                }
+                else if (connection.isClosed()) {    // hasDataAvailable can close connection, so we need to check for it
+                    set(window::stain::type::closed, true); // Mark area for clearing
                 }
                 
                 delete[] packetBuffer;
@@ -282,7 +296,7 @@ namespace window {
     }
 
     types::rectangle handle::getRenderableArea() const {
-        return positionToCellCoordinates(preset, displayId);
+        return positionToPixelCoordinates(preset, displayId);
     }
 
     types::rectangle handle::getResizeClearArea() const {
@@ -779,7 +793,7 @@ namespace window {
         void cleanupDeadHandles() {
             handles([](std::vector<handle>& self) {
                 auto it = std::remove_if(self.begin(), self.end(), [](const handle& h) {
-                    return h.connection.getHandle() < 0;
+                    return h.connection.getHandle() < 0 && !window::stain::has(h.dirty, window::stain::type::closed);
                 });
                 
                 if (it != self.end()) {

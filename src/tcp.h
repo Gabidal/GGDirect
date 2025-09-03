@@ -134,7 +134,7 @@ namespace tcp {
             close();
         }
 
-        bool isClosed() {
+        bool isClosed() const {
             return handle < 0;
         }
 

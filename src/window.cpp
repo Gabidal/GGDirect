@@ -281,6 +281,10 @@ namespace window {
         }
     }
 
+    types::rectangle handle::getRenderableArea() const {
+        return positionToCellCoordinates(preset, displayId);
+    }
+
     types::rectangle handle::getResizeClearArea() const {
         // Get the current and previous window rectangles in pixel coordinates
         types::rectangle currentRect = positionToPixelCoordinates(preset, displayId);

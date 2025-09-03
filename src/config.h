@@ -237,6 +237,9 @@ namespace config {
         std::string getWallpaperPath();
         bool loadWallpaper(const std::string& wallpaperPath);
         bool getWallpaperPixel(int x, int y, uint32_t& pixel);
+        
+        // Optimized wallpaper region access for efficient copying
+        bool getWallpaperRegion(int startX, int startY, int regionWidth, int regionHeight, uint32_t* destBuffer, int destWidth);
     }
 
     /**

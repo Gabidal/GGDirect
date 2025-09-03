@@ -70,41 +70,58 @@ namespace renderer {
         }
     }
     
-    // Clear a rectangular area in the framebuffer with a specific color or wallpaper
-    inline void clearFramebufferRect(uint32_t* fbBuffer, int fbWidth, int fbHeight, const types::rectangle& rect, uint32_t defaultColor) {
-        // Bounds checking
-        if (rect.position.x >= fbWidth || rect.position.y >= fbHeight || 
-            rect.size.x <= 0 || rect.size.y <= 0) {
-            return;
-        }
-        
+    // Helper struct for clear buffer preparation
+    struct ClearBufferData {
+        int startX, startY, clearWidth, clearHeight;
+        std::vector<uint32_t> clearBuffer;
+    };
+
+    // Prepare clear buffer with wallpaper or solid color
+    inline ClearBufferData prepareClearBuffer(const types::rectangle& fillableArea, uint32_t backgroundColor, types::iVector2 bufferDimensions) {
+        ClearBufferData data;
+
         // Calculate actual clearing bounds
-        int startX = std::max(0, rect.position.x);
-        int startY = std::max(0, rect.position.y);
-        int endX = std::min(fbWidth, rect.position.x + rect.size.x);
-        int endY = std::min(fbHeight, rect.position.y + rect.size.y);
+        data.startX = std::max(0, fillableArea.position.x);
+        data.startY = std::max(0, fillableArea.position.y);
+        int endX = std::min(bufferDimensions.x, fillableArea.position.x + fillableArea.size.x);
+        int endY = std::min(bufferDimensions.y, fillableArea.position.y + fillableArea.size.y);
+        data.clearWidth = endX - data.startX;
+        data.clearHeight = endY - data.startY;
+
+        if (data.clearWidth <= 0 || data.clearHeight <= 0) {
+            data.clearWidth = 0;
+            data.clearHeight = 0;
+            return data;
+        }
+
+        // Prepare the clear buffer
+        data.clearBuffer.resize(data.clearWidth * data.clearHeight);
+
+        bool gotWallpaper = config::manager::getWallpaperRegion(
+            data.startX, 
+            data.startY, 
+            data.clearWidth, 
+            data.clearHeight, 
+            data.clearBuffer.data(), 
+            data.clearWidth
+        );
+
+        if (!gotWallpaper) {
+            // Fill buffer with solid color
+            std::fill(data.clearBuffer.begin(), data.clearBuffer.end(), backgroundColor);
+        }
+
+        return data;
+    }
+
+    // Clear a rectangular area in the framebuffer with a specific color or wallpaper
+    inline void clearFramebufferRect(uint32_t* fbBuffer, types::iVector2 bufferDimensions, int startX, int startY, int clearWidth, int clearHeight, const std::vector<uint32_t>& clearPixels) {
+        // Bounds checking already done in caller
         
-        // Try to get wallpaper path
-        std::string wallpaperPath = config::manager::getWallpaperPath();
-        
-        // Clear line by line
-        for (int y = startY; y < endY; y++) {
-            uint32_t* lineStart = &fbBuffer[y * fbWidth + startX];
-            
-            if (!wallpaperPath.empty()) {
-                // Use wallpaper if available
-                for (int x = startX; x < endX; x++) {
-                    uint32_t wallpaperPixel;
-                    if (config::manager::getWallpaperPixel(x, y, wallpaperPixel)) {
-                        fbBuffer[y * fbWidth + x] = wallpaperPixel;
-                    } else {
-                        fbBuffer[y * fbWidth + x] = defaultColor;
-                    }
-                }
-            } else {
-                // Use solid color
-                std::fill(lineStart, lineStart + (endX - startX), defaultColor);
-            }
+        // Copy the pre-filled buffer to the framebuffer
+        for (int y = 0; y < clearHeight; y++) {
+            uint32_t* lineStart = &fbBuffer[(startY + y) * bufferDimensions.x + startX];
+            std::memcpy(lineStart, &clearPixels[y * clearWidth], clearWidth * sizeof(uint32_t));
         }
     }
     
@@ -120,6 +137,56 @@ namespace renderer {
     // Forward declaration - kept for backward compatibility
     void renderCellToFramebuffer(uint32_t* fbBuffer, int fbWidth, int fbHeight, int startX, int startY, const font::cellRenderData& cellData);
     
+    inline bool clearOccupiedArea(window::handle* currentHandle) {
+        if (!currentFramebuffer) return false;    // ensure the frame buffer exists
+        
+        // first let's cast the frame buffer void ptr into an RGB8888 cast
+        uint32_t* pixelBuffer = static_cast<uint32_t*>(currentFramebuffer->getBuffer());
+
+        if (!pixelBuffer) return false;   // ensure the pixel buffer exists
+        
+        // Clear the area with configured background color
+        uint32_t backgroundColor = config::manager::getBackgroundColor();
+
+        types::rectangle fillableArea;
+
+        if (window::stain::has(currentHandle->dirty, window::stain::type::closed)) {
+            fillableArea = currentHandle->getRenderableArea();
+
+            // Clear the closed stain flag
+            currentHandle->set(window::stain::type::closed, false);
+        }
+        else if (window::stain::has(currentHandle->dirty, window::stain::type::resize)) {
+            fillableArea = currentHandle->getResizeClearArea();
+            
+            // Clear the resize stain flag
+            currentHandle->set(window::stain::type::resize, false);
+        }
+        else
+            return false; // Nothing to clear
+
+        types::iVector2 currentFramebufferArea = currentFramebuffer->getRenderableArea();
+
+        // Prepare the clear buffer using helper function
+        ClearBufferData clearData = prepareClearBuffer(fillableArea, backgroundColor, currentFramebufferArea);
+
+        if (clearData.clearWidth <= 0 || clearData.clearHeight <= 0) {
+            return false;
+        }
+
+        clearFramebufferRect(
+            pixelBuffer, 
+            currentFramebufferArea,
+            clearData.startX, 
+            clearData.startY, 
+            clearData.clearWidth, 
+            clearData.clearHeight, 
+            clearData.clearBuffer
+        );
+        
+        return true;
+    }
+
     // Initialize display and font systems
     void init() {
         // Initialize display system
@@ -210,60 +277,40 @@ namespace renderer {
 
                     // Receive cell buffers and check for disconnected handles
                     for (int i = static_cast<int>(self.size()) - 1; i >= 0; i--) {
+                        bool removeHandle = false;
+
                         if (self[i].connection.isClosed()) {
                             // Connection was closed by client or network failure
-                            LOG_INFO() << "Handle " << i << " disconnected, marking for removal" << std::endl;
-                            continue;
+                            LOG_INFO() << "Handle " << i << " disconnected" << std::endl;
+                            removeHandle = true;
                         }
-
-                        if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
+                        else if (self[i].errorCount > window::handle::maxAllowedErrorCount) {
                             // Handle has too many communication errors - likely disconnected
                             LOG_ERROR() << "Handle " << i << " has excessive errors (" << 
-                                         self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << "), marking for removal" << std::endl;
+                                         self[i].errorCount << " > " << window::handle::maxAllowedErrorCount << ")" << std::endl;
                             self[i].close();
-                            continue;
+                            removeHandle = true;
                         }
 
-                        // Poll active handles for new data
-                        self[i].poll();
-                    }
-
-                    // Handle resize stains - clear areas that need to be cleared due to window resizes
-                    if (currentFramebuffer) {
-                        uint32_t* fbBuffer = static_cast<uint32_t*>(currentFramebuffer->getBuffer());
-                        if (fbBuffer) {
-                            for (auto& handle : self) {
-                                if (window::stain::has(handle.dirty, window::stain::type::resize)) {
-                                    // Get the area that needs to be cleared
-                                    types::rectangle clearArea = handle.getResizeClearArea();
-                                    
-                                    // Clear the area with configured background color
-                                    uint32_t backgroundColor = config::manager::getBackgroundColor();
-                                    clearFramebufferRect(fbBuffer, 
-                                                       currentFramebuffer->getPitch() / sizeof(uint32_t), 
-                                                       currentFramebuffer->getHeight(), 
-                                                       clearArea, 
-                                                       backgroundColor);
-                                    
-                                    // Clear the resize stain flag
-                                    handle.set(window::stain::type::resize, false);
-                                    
-                                    LOG_VERBOSE() << "Cleared resize area: " << clearArea.position.x << "," << clearArea.position.y 
-                                                  << " size: " << clearArea.size.x << "x" << clearArea.size.y << std::endl;
-                                    
-                                    needsPresent = true;
-                                }
-                            }
+                        if (removeHandle) {
+                            self[i].set(window::stain::type::closed, true); // Mark area for clearing
                         }
+                        else
+                            // Poll active handles for new data
+                            self[i].poll();
                     }
 
                     // Render gotten cell buffers.
                     for (auto& handle : self) {
+                        // First clear handles that need to be cleared
+                        if (clearOccupiedArea(&handle)) {
+                            needsPresent = true;
+                        }
+                        // After clearing area, then render the handle, this is for resized handles 
                         if (renderHandle(&handle)) {
                             needsPresent = true;
                         }
                     }
-
                 });
 
                 // Clean up dead handles after polling
@@ -342,7 +389,7 @@ namespace renderer {
     }
 
     bool renderHandle(const window::handle* handle) {
-        if (!rendererInitialized || !handle || !currentFramebuffer) {
+        if (!rendererInitialized || !handle || !currentFramebuffer || handle->connection.isClosed()) {
             return false;
         }
 

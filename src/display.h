@@ -151,6 +151,7 @@ namespace display {
         uint32_t getFormat() const { return info.format; }
         void* getBuffer() const { return buffer; }
         size_t getSize() const { return info.size; }
+        types::iVector2 getRenderableArea() const;      // <-- Use this one to get indexable buffer dimensions!
 
         // Buffer operations
         bool map();

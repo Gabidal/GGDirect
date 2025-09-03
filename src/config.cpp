@@ -469,6 +469,32 @@ namespace config {
             }
             return pixels[y * width + x];
         }
+        
+        // Get a pointer to a rectangular region of pixels for efficient copying
+        const uint32_t* getRegionData(int startX, int startY, int regionWidth, int regionHeight) const {
+            if (!isValid || startX < 0 || startY < 0 || 
+                startX + regionWidth > width || startY + regionHeight > height ||
+                regionWidth <= 0 || regionHeight <= 0) {
+                return nullptr;
+            }
+            return &pixels[startY * width + startX];
+        }
+        
+        // Copy a rectangular region to a destination buffer
+        bool copyRegionToBuffer(int startX, int startY, int regionWidth, int regionHeight, uint32_t* destBuffer, int destWidth) const {
+            if (!isValid || startX < 0 || startY < 0 || startX + regionWidth > width || startY + regionHeight > height || regionWidth <= 0 || regionHeight <= 0 || destBuffer == nullptr) {
+                return false;
+            }
+            
+            // Copy row by row for efficiency
+            for (int y = 0; y < regionHeight; y++) {
+                const uint32_t* srcRow = &pixels[(startY + y) * width + startX];
+                uint32_t* destRow = &destBuffer[y * destWidth];
+                std::memcpy(destRow, srcRow, regionWidth * sizeof(uint32_t));
+            }
+            
+            return true;
+        }
     };
     
     // Global wallpaper image instance
@@ -1019,6 +1045,14 @@ namespace config {
             
             pixel = wallpaperImage.getPixel(x, y);
             return true;
+        }
+        
+        bool getWallpaperRegion(int startX, int startY, int regionWidth, int regionHeight, uint32_t* destBuffer, int destWidth) {
+            if (!wallpaperImage.isValid || config::manager::getWallpaperPath().empty()) {
+                return false;
+            }
+            
+            return wallpaperImage.copyRegionToBuffer(startX, startY, regionWidth, regionHeight, destBuffer, destWidth);
         }
     }
 

@@ -140,6 +140,8 @@ namespace window {
         // for staining
         void set(stain::type t, bool val);
         
+        types::rectangle getRenderableArea() const;
+
         // Resize stain system - get area that needs to be cleared
         types::rectangle getResizeClearArea() const;
         

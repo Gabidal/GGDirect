@@ -320,6 +320,13 @@ namespace display {
         }
     }
 
+    types::iVector2 frameBuffer::getRenderableArea() const {
+        return {
+            getPitch() / (info.bpp / 8),
+            static_cast<int>(getHeight())
+        };
+    }
+
     //===============================================================================
     // Plane Implementation
     //===============================================================================

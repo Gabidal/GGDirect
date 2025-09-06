@@ -14,41 +14,98 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <linux/input-event-codes.h>
+#include <libevdev/libevdev.h>
+#include <cctype>
 
 namespace config {
 
-    // Static data for key code mappings
-    static const std::map<std::string, int> keyNameToCode = {
-        {"tab", KEY_TAB}, {"enter", KEY_ENTER}, {"escape", KEY_ESC}, {"space", KEY_SPACE},
-        {"up", KEY_UP}, {"down", KEY_DOWN}, {"left", KEY_LEFT}, {"right", KEY_RIGHT},
-        {"home", KEY_HOME}, {"end", KEY_END}, {"pageup", KEY_PAGEUP}, {"pagedown", KEY_PAGEDOWN},
-        {"delete", KEY_DELETE}, {"backspace", KEY_BACKSPACE}, {"insert", KEY_INSERT},
-        {"f1", KEY_F1}, {"f2", KEY_F2}, {"f3", KEY_F3}, {"f4", KEY_F4}, {"f5", KEY_F5},
-        {"f6", KEY_F6}, {"f7", KEY_F7}, {"f8", KEY_F8}, {"f9", KEY_F9}, {"f10", KEY_F10},
-        {"f11", KEY_F11}, {"f12", KEY_F12},
-        {"a", KEY_A}, {"b", KEY_B}, {"c", KEY_C}, {"d", KEY_D}, {"e", KEY_E}, {"f", KEY_F},
-        {"g", KEY_G}, {"h", KEY_H}, {"i", KEY_I}, {"j", KEY_J}, {"k", KEY_K}, {"l", KEY_L},
-        {"m", KEY_M}, {"n", KEY_N}, {"o", KEY_O}, {"p", KEY_P}, {"q", KEY_Q}, {"r", KEY_R},
-        {"s", KEY_S}, {"t", KEY_T}, {"u", KEY_U}, {"v", KEY_V}, {"w", KEY_W}, {"x", KEY_X},
-        {"y", KEY_Y}, {"z", KEY_Z},
-        {"0", KEY_0}, {"1", KEY_1}, {"2", KEY_2}, {"3", KEY_3}, {"4", KEY_4}, {"5", KEY_5},
-        {"6", KEY_6}, {"7", KEY_7}, {"8", KEY_8}, {"9", KEY_9}
-    };
+    // Dynamic key mapping built from libevdev at runtime for generality
+    static std::unordered_map<std::string, int> keyNameToCode;
+    static std::unordered_map<int, std::string> codeToKeyName;
 
-    static std::map<int, std::string> codeToKeyName;
+    static inline std::string toLower(std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return std::tolower(c); });
+        return s;
+    }
 
-    // Initialize reverse mapping
-    void initializeKeyMappings() {
-        if (codeToKeyName.empty()) {
-            for (const auto& pair : keyNameToCode) {
-                codeToKeyName[pair.second] = pair.first;
+    static inline std::string stripKeyPrefix(const std::string& name) {
+        // Convert "KEY_ENTER" -> "enter"
+        if (name.rfind("KEY_", 0) == 0) {
+            return toLower(name.substr(4));
+        }
+        return toLower(name);
+    }
+
+    static inline std::string toFriendlyKeyName(const std::string& kernelName) {
+        std::string s = stripKeyPrefix(kernelName);
+        // Make function keys like F1..F24 lowercase (libevdev already uses F1)
+        return s;
+    }
+
+    static void ensureKeyMappingsBuilt() {
+        if (!keyNameToCode.empty() && !codeToKeyName.empty()) return;
+
+        // Build from libevdev names for all EV_KEY codes
+        for (int code = 0; code <= KEY_MAX; ++code) {
+            const char* nm = libevdev_event_code_get_name(EV_KEY, code);
+            if (!nm) continue;
+            std::string kernelName(nm);
+            std::string friendly = toFriendlyKeyName(kernelName);
+            codeToKeyName[code] = friendly;               // e.g., "enter"
+            keyNameToCode[friendly] = code;               // primary alias
+
+            // Also add the raw kernel name (lowercased) as an alias, e.g., "key_enter"
+            keyNameToCode[toLower(kernelName)] = code;
+
+            // Function keys: map "f1".."f24"
+            if (friendly.size() > 1 && friendly[0] == 'f') {
+                keyNameToCode[friendly] = code;
             }
+        }
+
+        // Minimal punctuation aliases for terminal-like input (ANSI-ish)
+        // These complement the generic generation above for symbols that don't map as KEY_+
+        auto addAlias = [](const std::string& alias, int code){ keyNameToCode[alias] = code; };
+        addAlias("-", KEY_MINUS);
+        addAlias("=", KEY_EQUAL);
+        addAlias("[", KEY_LEFTBRACE);
+        addAlias("]", KEY_RIGHTBRACE);
+        addAlias(";", KEY_SEMICOLON);
+        addAlias("'", KEY_APOSTROPHE);
+        addAlias(",", KEY_COMMA);
+        addAlias(".", KEY_DOT);
+        addAlias("/", KEY_SLASH);
+        addAlias("\\", KEY_BACKSLASH);
+        addAlias("`", KEY_GRAVE);
+
+        // Common synonyms
+        auto aliasIfPresent = [&](const char* alias, const char* kernel){
+            int c = libevdev_event_code_from_name(EV_KEY, kernel);
+            if (c > 0) keyNameToCode[alias] = c;
+        };
+        aliasIfPresent("esc", "KEY_ESC");
+        aliasIfPresent("escape", "KEY_ESC");
+        aliasIfPresent("return", "KEY_ENTER");
+        aliasIfPresent("super", "KEY_LEFTMETA");
+        aliasIfPresent("meta", "KEY_LEFTMETA");
+        aliasIfPresent("win", "KEY_LEFTMETA");
+
+        // Alphanumeric single-char shortcuts (e.g., 'a' -> KEY_A, '1' -> KEY_1)
+        for (char ch = 'a'; ch <= 'z'; ++ch) {
+            std::string key = std::string("KEY_") + static_cast<char>(std::toupper(ch));
+            int code = libevdev_event_code_from_name(EV_KEY, key.c_str());
+            if (code > 0) keyNameToCode[std::string(1, ch)] = code;
+        }
+        for (char d = '0'; d <= '9'; ++d) {
+            std::string key = std::string("KEY_") + d;
+            int code = libevdev_event_code_from_name(EV_KEY, key.c_str());
+            if (code > 0) keyNameToCode[std::string(1, d)] = code;
         }
     }
 
     // KeyCombination implementation
     std::string KeyCombination::toString() const {
-        initializeKeyMappings();
+    ensureKeyMappingsBuilt();
         
         std::string result;
         if (ctrl) result += "ctrl+";
@@ -58,9 +115,14 @@ namespace config {
         
         auto it = codeToKeyName.find(keyCode);
         if (it != codeToKeyName.end()) {
-            result += it->second;
+            result += it->second; // user-friendly name from libevdev
         } else {
-            result += "key" + std::to_string(keyCode);
+            // Fall back to kernel name if available
+            if (const char* nm = libevdev_event_code_get_name(EV_KEY, keyCode)) {
+                result += stripKeyPrefix(nm);
+            } else {
+                result += "key" + std::to_string(keyCode);
+            }
         }
         
         return result;
@@ -85,15 +147,27 @@ namespace config {
         }
         
         // Parse main key
-        std::transform(remaining.begin(), remaining.end(), remaining.begin(), ::tolower);
+        remaining = toLower(remaining);
+        ensureKeyMappingsBuilt();
         auto it = keyNameToCode.find(remaining);
         if (it != keyNameToCode.end()) {
             result.keyCode = it->second;
-        } else if (remaining.substr(0, 3) == "key" && remaining.length() > 3) {
-            try {
-                result.keyCode = std::stoi(remaining.substr(3));
-            } catch (...) {
-                result.keyCode = 0;
+        } else if (!remaining.empty()) {
+            // Try kernel-style lookup by constructing KEY_* name
+            std::string upper;
+            upper.reserve(remaining.size());
+            for (char c : remaining) upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+            std::string kernel = "KEY_" + upper;
+            int code = libevdev_event_code_from_name(EV_KEY, kernel.c_str());
+            if (code > 0) {
+                result.keyCode = code;
+            } else if (remaining.rfind("key", 0) == 0 && remaining.size() > 3) {
+                // As a last resort, allow numeric raw code e.g., key30
+                try {
+                    result.keyCode = std::stoi(remaining.substr(3));
+                } catch (...) {
+                    result.keyCode = 0;
+                }
             }
         }
         
@@ -1028,15 +1102,22 @@ namespace config {
         int stringToKeyCode(const std::string& keyName) {
             std::string lowerKey = keyName;
             std::transform(lowerKey.begin(), lowerKey.end(), lowerKey.begin(), ::tolower);
-            
+            ensureKeyMappingsBuilt();
             auto it = keyNameToCode.find(lowerKey);
-            return (it != keyNameToCode.end()) ? it->second : 0;
+            if (it != keyNameToCode.end()) return it->second;
+            // Try kernel name form
+            std::string upper;
+            for (char c : lowerKey) upper.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+            int code = libevdev_event_code_from_name(EV_KEY, ("KEY_" + upper).c_str());
+            return code > 0 ? code : 0;
         }
         
         std::string keyCodeToString(int keyCode) {
-            initializeKeyMappings();
+            ensureKeyMappingsBuilt();
             auto it = codeToKeyName.find(keyCode);
-            return (it != codeToKeyName.end()) ? it->second : ("key" + std::to_string(keyCode));
+            if (it != codeToKeyName.end()) return it->second;
+            if (const char* nm = libevdev_event_code_get_name(EV_KEY, keyCode)) return stripKeyPrefix(nm);
+            return "key" + std::to_string(keyCode);
         }
         
         bool fileExists(const std::string& path) {

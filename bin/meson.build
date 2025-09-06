@@ -109,8 +109,9 @@ endif
 drm_dep = dependency('libdrm', required: true)
 thread_dep = dependency('threads', required: true)
 freetype_dep = dependency('freetype2', required: true)
+libevdev_dep = dependency('libevdev', required: true) # if not found use: libevdev-dev or libevdev
 
-dependencies = [drm_dep, thread_dep, freetype_dep]
+dependencies = [drm_dep, thread_dep, freetype_dep, libevdev_dep]
 
 # Define the executable to be built
 executable(

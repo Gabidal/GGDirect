@@ -108,6 +108,11 @@ namespace input {
     class KeyboardHandler : public IDeviceHandler {
     private:
         packet::input::controlKey currentModifiers;
+        // Lightweight state for combo detection (arrows held while SUPER is down)
+        bool heldUp = false;
+        bool heldDown = false;
+        bool heldLeft = false;
+        bool heldRight = false;
         
     public:
         bool initialize(const DeviceInfo& deviceInfo) override;

@@ -133,124 +133,77 @@ namespace config {
 
         if (!current)   // No valid handle found
             return;
+        // Focus switching
+        if (hasFlag(flags, ActionBits::SWITCH_FOCUS_NEXT)) {
+            window::manager::setFocusOnNextAvailableHandle();
+        } else if (hasFlag(flags, ActionBits::SWITCH_FOCUS_PREV)) {
+            window::manager::setFocusOnNextAvailableHandle();
+        }
 
-        switch (type) {
-            case ActionType::SWITCH_FOCUS_NEXT: {
-                window::manager::setFocusOnNextAvailableHandle();
-                break;
+        // Closing
+        else if (hasFlag(flags, ActionBits::CLOSE_WINDOW)) {
+            if (!current->connection.isClosed()) {
+                LOG_INFO() << "Closing window: " << current->name << std::endl;
+                new(packetBuffer) packet::notify::base(packet::notify::type::CLOSED);
+                closeConnectionAfterwards = true;
+                current->set(window::stain::type::closed, true);
             }
-            case ActionType::SWITCH_FOCUS_PREVIOUS: {
-                window::manager::setFocusOnNextAvailableHandle();
-                break;
+        }
+
+        // Zooms
+        else if (hasFlag(flags, ActionBits::TOGGLE_ZOOM)) {
+            current->zoom = (current->zoom == 1.0f) ? 1.5f : 1.0f;
+            LOG_INFO() << "Toggled zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
+        } else if (hasFlag(flags, ActionBits::ZOOM_IN)) {
+            current->zoom = std::min(current->zoom + 0.1f, 3.0f);
+            LOG_INFO() << "Increased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
+        } else if (hasFlag(flags, ActionBits::ZOOM_OUT)) {
+            current->zoom = std::max(current->zoom - 0.1f, 0.5f);
+            LOG_INFO() << "Decreased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
+        }
+
+        // Movement and fullscreen
+        else if (hasFlag(flags, ActionBits::FULLSCREEN)) {
+            if (current->preset != window::position::FULLSCREEN) {
+                current->previousPreset = current->preset;
+                current->preset = window::position::FULLSCREEN;
+                LOG_INFO() << "Moved window to fullscreen: " << current->name << std::endl;
+                types::rectangle newrect = window::positionToPixelCoordinates(window::position::FULLSCREEN, current->displayId);
+                new(packetBuffer) packet::resize::base(types::sVector2(newrect.size));
+                current->set(window::stain::type::resize, true);
             }
-            case ActionType::MOVE_WINDOW_FULLSCREEN: {
-                if (current->preset != window::position::FULLSCREEN) {
-                    current->previousPreset = current->preset;  // Store previous position for resize stain
-                    current->preset = window::position::FULLSCREEN;
-                    LOG_INFO() << "Moved window to fullscreen: " << current->name << std::endl;
+        } else if (hasFlag(flags, ActionBits::MOVE)) {
+            // Resolve direction(s)
+            bool up = hasFlag(flags, ActionBits::DIR_UP);
+            bool down = hasFlag(flags, ActionBits::DIR_DOWN);
+            bool left = hasFlag(flags, ActionBits::DIR_LEFT);
+            bool right = hasFlag(flags, ActionBits::DIR_RIGHT);
 
-                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::FULLSCREEN, current->displayId);
+            window::position target = current->preset;
+            bool found = true;
+            if (up && left) target = window::position::TOP_LEFT;
+            else if (up && right) target = window::position::TOP_RIGHT;
+            else if (down && left) target = window::position::BOTTOM_LEFT;
+            else if (down && right) target = window::position::BOTTOM_RIGHT;
+            else if (up) target = window::position::TOP;
+            else if (down) target = window::position::BOTTOM;
+            else if (left) target = window::position::LEFT;
+            else if (right) target = window::position::RIGHT;
+            else found = false;
 
-                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
-
-                    current->set(window::stain::type::resize, true);
-                }
-                break;
+            if (found && current->preset != target) {
+                current->previousPreset = current->preset;
+                current->preset = target;
+                LOG_INFO() << "Moved window: " << current->name << std::endl;
+                types::rectangle newrect = window::positionToPixelCoordinates(target, current->displayId);
+                new(packetBuffer) packet::resize::base(types::sVector2(newrect.size));
+                current->set(window::stain::type::resize, true);
             }
-            case ActionType::MOVE_WINDOW_LEFT: {
-                if (current->preset != window::position::LEFT) {
-                    current->previousPreset = current->preset;  // Store previous position for resize stain
-                    current->preset = window::position::LEFT;
-                    LOG_INFO() << "Moved window to left half: " << current->name << std::endl;
-
-                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::LEFT, current->displayId);
-
-                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
-                    
-                    current->set(window::stain::type::resize, true);
-                }
-                break;
-            }
-            case ActionType::MOVE_WINDOW_RIGHT: {
-                if (current->preset != window::position::RIGHT) {
-                    current->previousPreset = current->preset;  // Store previous position for resize stain
-                    current->preset = window::position::RIGHT;
-                    LOG_INFO() << "Moved window to right half: " << current->name << std::endl;
-
-                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::RIGHT, current->displayId);
-
-                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
-                    
-                    current->set(window::stain::type::resize, true);
-                }
-                break;
-            }
-            case ActionType::MOVE_WINDOW_TOP: {
-                if (current->preset != window::position::TOP) {
-                    current->previousPreset = current->preset;  // Store previous position for resize stain
-                    current->preset = window::position::TOP;
-                    LOG_INFO() << "Moved window to top half: " << current->name << std::endl;
-
-                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::TOP, current->displayId);
-
-                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
-                    
-                    current->set(window::stain::type::resize, true);
-                }
-                break;
-            }
-            case ActionType::MOVE_WINDOW_BOTTOM: {
-                if (current->preset != window::position::BOTTOM) {
-                    current->previousPreset = current->preset;  // Store previous position for resize stain
-                    current->preset = window::position::BOTTOM;
-                    LOG_INFO() << "Moved window to bottom half: " << current->name << std::endl;
-
-                    types::rectangle newrect = window::positionToPixelCoordinates(window::position::BOTTOM, current->displayId);
-
-                    new(packetBuffer) packet::resize::base(types::sVector2(newrect.size)); // This transforms the iVector to the cell types sVector
-                    
-                    current->set(window::stain::type::resize, true);
-                }
-                break;
-            }
-            case ActionType::CLOSE_FOCUSED_WINDOW: {
-                if (!current->connection.isClosed()) {
-                    LOG_INFO() << "Closing window: " << current->name << std::endl;
-
-                    new(packetBuffer) packet::notify::base(packet::notify::type::CLOSED);
-
-                    closeConnectionAfterwards = true;
-
-                    current->set(window::stain::type::closed, true);
-                }
-                break;
-            }
-            case ActionType::TOGGLE_ZOOM: {
-                current->zoom = (current->zoom == 1.0f) ? 1.5f : 1.0f;
-                LOG_INFO() << "Toggled zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
-                break;
-            }
-            case ActionType::INCREASE_ZOOM: {
-                current->zoom = std::min(current->zoom + 0.1f, 3.0f);
-                LOG_INFO() << "Increased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
-                break;
-            }
-            case ActionType::DECREASE_ZOOM: {
-                current->zoom = std::max(current->zoom - 0.1f, 0.5f);
-                LOG_INFO() << "Decreased zoom for window: " << current->name << " (zoom: " << current->zoom << ")" << std::endl;
-                break;
-            }
-            case ActionType::CUSTOM: {
-                if (callback) {
-                    callback();
-                } else {
-                    LOG_ERROR() << "Custom action without callback: " << customCommand << std::endl;
-                }
-                break;
-            }
-            default:
-                LOG_ERROR() << "Unknown action type executed" << std::endl;
-                break;
+        } else if (hasFlag(flags, ActionBits::CUSTOM)) {
+            if (callback) { callback(); }
+            else { LOG_ERROR() << "Custom action without callback: " << customCommand << std::endl; }
+        } else {
+            LOG_ERROR() << "Unknown action flags executed: " << static_cast<uint32_t>(flags) << std::endl;
         }
 
         if (basePacket->packetType == packet::type::UNKNOWN)
@@ -266,37 +219,50 @@ namespace config {
     }
 
     std::string Action::toString() const {
-        switch (type) {
-            case ActionType::SWITCH_FOCUS_NEXT: return "switch_focus_next";
-            case ActionType::SWITCH_FOCUS_PREVIOUS: return "switch_focus_previous";
-            case ActionType::MOVE_WINDOW_FULLSCREEN: return "move_window_fullscreen";
-            case ActionType::MOVE_WINDOW_LEFT: return "move_window_left";
-            case ActionType::MOVE_WINDOW_RIGHT: return "move_window_right";
-            case ActionType::MOVE_WINDOW_TOP: return "move_window_top";
-            case ActionType::MOVE_WINDOW_BOTTOM: return "move_window_bottom";
-            case ActionType::CLOSE_FOCUSED_WINDOW: return "close_focused_window";
-            case ActionType::TOGGLE_ZOOM: return "toggle_zoom";
-            case ActionType::INCREASE_ZOOM: return "increase_zoom";
-            case ActionType::DECREASE_ZOOM: return "decrease_zoom";
-            case ActionType::CUSTOM: return "custom:" + customCommand;
-            default: return "unknown";
+        if (hasFlag(flags, ActionBits::SWITCH_FOCUS_NEXT)) return "switch_focus_next";
+        if (hasFlag(flags, ActionBits::SWITCH_FOCUS_PREV)) return "switch_focus_previous";
+        if (hasFlag(flags, ActionBits::FULLSCREEN)) return "move_window_fullscreen";
+        if (hasFlag(flags, ActionBits::MOVE)) {
+            bool up = hasFlag(flags, ActionBits::DIR_UP);
+            bool down = hasFlag(flags, ActionBits::DIR_DOWN);
+            bool left = hasFlag(flags, ActionBits::DIR_LEFT);
+            bool right = hasFlag(flags, ActionBits::DIR_RIGHT);
+            if (up && left) return "move_window_top_left";
+            if (up && right) return "move_window_top_right";
+            if (down && left) return "move_window_bottom_left";
+            if (down && right) return "move_window_bottom_right";
+            if (up) return "move_window_top";
+            if (down) return "move_window_bottom";
+            if (left) return "move_window_left";
+            if (right) return "move_window_right";
+            return "move_window";
         }
+        if (hasFlag(flags, ActionBits::CLOSE_WINDOW)) return "close_focused_window";
+        if (hasFlag(flags, ActionBits::TOGGLE_ZOOM)) return "toggle_zoom";
+        if (hasFlag(flags, ActionBits::ZOOM_IN)) return "increase_zoom";
+        if (hasFlag(flags, ActionBits::ZOOM_OUT)) return "decrease_zoom";
+        if (hasFlag(flags, ActionBits::CUSTOM)) return "custom:" + customCommand;
+        return "unknown";
     }
 
     Action Action::fromString(const std::string& str) {
-        if (str == "switch_focus_next") return Action(ActionType::SWITCH_FOCUS_NEXT);
-        if (str == "switch_focus_previous") return Action(ActionType::SWITCH_FOCUS_PREVIOUS);
-        if (str == "move_window_fullscreen") return Action(ActionType::MOVE_WINDOW_FULLSCREEN);
-        if (str == "move_window_left") return Action(ActionType::MOVE_WINDOW_LEFT);
-        if (str == "move_window_right") return Action(ActionType::MOVE_WINDOW_RIGHT);
-        if (str == "move_window_top") return Action(ActionType::MOVE_WINDOW_TOP);
-        if (str == "move_window_bottom") return Action(ActionType::MOVE_WINDOW_BOTTOM);
-        if (str == "close_focused_window") return Action(ActionType::CLOSE_FOCUSED_WINDOW);
-        if (str == "toggle_zoom") return Action(ActionType::TOGGLE_ZOOM);
-        if (str == "increase_zoom") return Action(ActionType::INCREASE_ZOOM);
-        if (str == "decrease_zoom") return Action(ActionType::DECREASE_ZOOM);
+        if (str == "switch_focus_next") return Action(ActionBits::SWITCH_FOCUS_NEXT);
+        if (str == "switch_focus_previous") return Action(ActionBits::SWITCH_FOCUS_PREV);
+        if (str == "move_window_fullscreen") return Action(ActionBits::FULLSCREEN);
+        if (str == "move_window_left") return Action(ActionBits::MOVE | ActionBits::DIR_LEFT);
+        if (str == "move_window_right") return Action(ActionBits::MOVE | ActionBits::DIR_RIGHT);
+        if (str == "move_window_top") return Action(ActionBits::MOVE | ActionBits::DIR_UP);
+        if (str == "move_window_bottom") return Action(ActionBits::MOVE | ActionBits::DIR_DOWN);
+        if (str == "move_window_top_left") return Action(ActionBits::MOVE | ActionBits::DIR_UP | ActionBits::DIR_LEFT);
+        if (str == "move_window_top_right") return Action(ActionBits::MOVE | ActionBits::DIR_UP | ActionBits::DIR_RIGHT);
+        if (str == "move_window_bottom_left") return Action(ActionBits::MOVE | ActionBits::DIR_DOWN | ActionBits::DIR_LEFT);
+        if (str == "move_window_bottom_right") return Action(ActionBits::MOVE | ActionBits::DIR_DOWN | ActionBits::DIR_RIGHT);
+        if (str == "close_focused_window") return Action(ActionBits::CLOSE_WINDOW);
+        if (str == "toggle_zoom") return Action(ActionBits::TOGGLE_ZOOM);
+        if (str == "increase_zoom") return Action(ActionBits::ZOOM_IN);
+        if (str == "decrease_zoom") return Action(ActionBits::ZOOM_OUT);
         if (str.substr(0, 7) == "custom:") return Action(str.substr(7));
-        return Action(ActionType::UNKNOWN);
+        return Action(ActionBits::NONE);
     }
 
     // KeyBindSettings implementation
@@ -308,69 +274,69 @@ namespace config {
         // Focus management defaults
         focusManagement.emplace_back(
             KeyCombination(KEY_TAB, false, true, false, false), // Alt+Tab
-            Action(ActionType::SWITCH_FOCUS_NEXT),
+            Action(ActionBits::SWITCH_FOCUS_NEXT),
             "Switch to next window"
         );
         
         focusManagement.emplace_back(
             KeyCombination(KEY_TAB, false, true, true, false), // Alt+Shift+Tab
-            Action(ActionType::SWITCH_FOCUS_PREVIOUS),
+            Action(ActionBits::SWITCH_FOCUS_PREV),
             "Switch to previous window"
         );
         
         // Window management defaults
         windowManagement.emplace_back(
             KeyCombination(KEY_UP, false, false, false, true), // Super+Up
-            Action(ActionType::MOVE_WINDOW_TOP),
+            Action(ActionBits::MOVE | ActionBits::DIR_UP),
             "Move window to top half"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_DOWN, false, false, false, true), // Super+Down
-            Action(ActionType::MOVE_WINDOW_BOTTOM),
+            Action(ActionBits::MOVE | ActionBits::DIR_DOWN),
             "Move window to bottom half"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_LEFT, false, false, false, true), // Super+Left
-            Action(ActionType::MOVE_WINDOW_LEFT),
+            Action(ActionBits::MOVE | ActionBits::DIR_LEFT),
             "Move window to left half"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_RIGHT, false, false, false, true), // Super+Right
-            Action(ActionType::MOVE_WINDOW_RIGHT),
+            Action(ActionBits::MOVE | ActionBits::DIR_RIGHT),
             "Move window to right half"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_F, false, false, false, true), // Super+F
-            Action(ActionType::MOVE_WINDOW_FULLSCREEN),
+            Action(ActionBits::FULLSCREEN),
             "Move window to fullscreen"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_Q, false, false, false, true), // Super+Q
-            Action(ActionType::CLOSE_FOCUSED_WINDOW),
+            Action(ActionBits::CLOSE_WINDOW),
             "Close focused window"
         );
         
         // Zoom controls
         windowManagement.emplace_back(
             KeyCombination(KEY_EQUAL, true, false, false, false), // Ctrl+=
-            Action(ActionType::INCREASE_ZOOM),
+            Action(ActionBits::ZOOM_IN),
             "Increase zoom"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_MINUS, true, false, false, false), // Ctrl+-
-            Action(ActionType::DECREASE_ZOOM),
+            Action(ActionBits::ZOOM_OUT),
             "Decrease zoom"
         );
         
         windowManagement.emplace_back(
             KeyCombination(KEY_0, true, false, false, false), // Ctrl+0
-            Action(ActionType::TOGGLE_ZOOM),
+            Action(ActionBits::TOGGLE_ZOOM),
             "Reset/toggle zoom"
         );
     }
@@ -629,7 +595,7 @@ namespace config {
                     KeyCombination key = KeyCombination::fromString(keyStr);
                     Action action = Action::fromString(actionStr);
                     
-                    if (key.keyCode != 0 && action.type != ActionType::UNKNOWN) {
+                    if (key.keyCode != 0 && action.flags != ActionBits::NONE) {
                         addKeybind(key, action, "Loaded from config");
                     }
                 }
@@ -819,25 +785,14 @@ namespace config {
         KeyBind newBind(key, action, description);
         
         // Determine which category to add to
-        switch (action.type) {
-            case ActionType::SWITCH_FOCUS_NEXT:
-            case ActionType::SWITCH_FOCUS_PREVIOUS:
-                config.keybinds.focusManagement.push_back(newBind);
-                break;
-            case ActionType::MOVE_WINDOW_FULLSCREEN:
-            case ActionType::MOVE_WINDOW_LEFT:
-            case ActionType::MOVE_WINDOW_RIGHT:
-            case ActionType::MOVE_WINDOW_TOP:
-            case ActionType::MOVE_WINDOW_BOTTOM:
-            case ActionType::CLOSE_FOCUSED_WINDOW:
-            case ActionType::TOGGLE_ZOOM:
-            case ActionType::INCREASE_ZOOM:
-            case ActionType::DECREASE_ZOOM:
-                config.keybinds.windowManagement.push_back(newBind);
-                break;
-            default:
-                config.keybinds.customBinds.push_back(newBind);
-                break;
+        if (hasFlag(action.flags, ActionBits::SWITCH_FOCUS_NEXT) || hasFlag(action.flags, ActionBits::SWITCH_FOCUS_PREV)) {
+            config.keybinds.focusManagement.push_back(newBind);
+        } else if (hasFlag(action.flags, ActionBits::MOVE) || hasFlag(action.flags, ActionBits::FULLSCREEN) ||
+                   hasFlag(action.flags, ActionBits::CLOSE_WINDOW) || hasFlag(action.flags, ActionBits::TOGGLE_ZOOM) ||
+                   hasFlag(action.flags, ActionBits::ZOOM_IN) || hasFlag(action.flags, ActionBits::ZOOM_OUT)) {
+            config.keybinds.windowManagement.push_back(newBind);
+        } else {
+            config.keybinds.customBinds.push_back(newBind);
         }
         
         rebuildKeybindMap();
@@ -877,7 +832,7 @@ namespace config {
         if (it != activeKeybinds.end()) {
             return it->second;
         }
-        return Action(ActionType::UNKNOWN);
+    return Action(ActionBits::NONE);
     }
 
     bool ConfigurationManager::processKeyInput(const KeyCombination& key) {
@@ -1003,6 +958,18 @@ namespace config {
                 result = manager.getAllKeybinds();
             });
             return result;
+        }
+
+        bool isKeybindActive(const KeyCombination& key) {
+            bool result = false;
+            configManager([&](ConfigurationManager& manager){ result = manager.isKeybindActive(key); });
+            return result;
+        }
+
+        Action getAction(const KeyCombination& key) {
+            Action a;
+            configManager([&](ConfigurationManager& manager){ a = manager.getAction(key); });
+            return a;
         }
         
         uint32_t getBackgroundColor() {

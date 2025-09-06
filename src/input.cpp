@@ -35,12 +35,14 @@ namespace input {
 
     bool KeyboardHandler::initialize(const DeviceInfo& deviceInfo) {
         currentModifiers = packet::input::controlKey::UNKNOWN;
+        heldUp = heldDown = heldLeft = heldRight = false;
         LOG_INFO() << "Initialized keyboard handler for: " << deviceInfo.name << std::endl;
         return true;
     }
 
     void KeyboardHandler::cleanup() {
         currentModifiers = packet::input::controlKey::UNKNOWN;
+        heldUp = heldDown = heldLeft = heldRight = false;
         LOG_INFO() << "Cleaned up keyboard handler." << std::endl;
     }
 
@@ -51,17 +53,63 @@ namespace input {
 
         bool isPressed = (rawEvent.type == EventType::KEY_PRESS);
         
-        // Check for keybinds first if this is a key press
+        // Update held arrow states early for combo logic
+        if (rawEvent.code == KEY_UP) heldUp = isPressed ? true : (heldUp && isPressed);
+        else if (rawEvent.code == KEY_DOWN) heldDown = isPressed ? true : (heldDown && isPressed);
+        else if (rawEvent.code == KEY_LEFT) heldLeft = isPressed ? true : (heldLeft && isPressed);
+        else if (rawEvent.code == KEY_RIGHT) heldRight = isPressed ? true : (heldRight && isPressed);
+
+        // Check for keybinds first (including combo inference) if this is a key press
         if (isPressed) {
-            // Convert raw event to config KeyCombination
+            // If Super is held and we pressed an arrow, attempt combo synthesis
+            bool superHeld = (static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SUPER)) != 0;
+            if (superHeld && (rawEvent.code == KEY_UP || rawEvent.code == KEY_DOWN || rawEvent.code == KEY_LEFT || rawEvent.code == KEY_RIGHT)) {
+                // Determine primary directions currently down
+                bool up = heldUp || (rawEvent.code == KEY_UP);
+                bool down = heldDown || (rawEvent.code == KEY_DOWN);
+                bool left = heldLeft || (rawEvent.code == KEY_LEFT);
+                bool right = heldRight || (rawEvent.code == KEY_RIGHT);
+
+                // Build a KeyCombination for single-arrow to see if user configured it (back-compat)
+                auto makeKC = [&](int keyCode) {
+                    config::KeyCombination kc; kc.keyCode = keyCode; kc.ctrl = false; kc.alt = false; kc.shift = false; kc.super = true; return kc; };
+
+                // We infer combos by checking that the base single-arrow is configured.
+                // If both a vertical and a horizontal are active, synthesize diagonal movement.
+                if ((up || down) && (left || right)) {
+                    // Check that at least one base direction is mapped to MOVE
+                    bool baseOK = false;
+                    if (config::manager::isKeybindActive(makeKC(up ? KEY_UP : KEY_DOWN))) {
+                        auto act = config::manager::getAction(makeKC(up ? KEY_UP : KEY_DOWN));
+                        baseOK = config::ConfigurationManager::actionHas(act, config::ActionBits::MOVE);
+                    }
+                    if (!baseOK && config::manager::isKeybindActive(makeKC(left ? KEY_LEFT : KEY_RIGHT))) {
+                        auto act = config::manager::getAction(makeKC(left ? KEY_LEFT : KEY_RIGHT));
+                        baseOK = config::ConfigurationManager::actionHas(act, config::ActionBits::MOVE);
+                    }
+                    if (baseOK) {
+                        // Synthesize a combined movement action and execute directly, no packet for key event
+                        config::Action combo;
+                        combo.flags = config::ActionBits::MOVE;
+                        if (up) combo.flags |= config::ActionBits::DIR_UP; else combo.flags |= config::ActionBits::DIR_DOWN;
+                        if (left) combo.flags |= config::ActionBits::DIR_LEFT; else combo.flags |= config::ActionBits::DIR_RIGHT;
+                        combo.execute();
+                        LOG_VERBOSE() << "Synthesized diagonal move from combo Super+Arrows" << std::endl;
+                        return false; // handled
+                    }
+                }
+
+                // Otherwise, fall back to normal single-arrow handling below
+            }
+
+            // Convert raw event to config KeyCombination and try direct lookup
             config::KeyCombination keyCombination;
             keyCombination.keyCode = rawEvent.code;
             keyCombination.ctrl = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::CTRL);
             keyCombination.alt = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::ALT);
             keyCombination.shift = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SHIFT);
             keyCombination.super = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SUPER);
-            
-            // Try to process the keybind
+
             if (config::manager::processKeyInput(keyCombination)) {
                 LOG_VERBOSE() << "Keybind handled in keyboard handler: " << keyCombination.toString() << std::endl;
                 return false; // Don't process this event further

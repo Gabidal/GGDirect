@@ -26,13 +26,10 @@ namespace config {
         
         KeyCombination() : keyCode(0), ctrl(false), alt(false), shift(false), super(false) {}
         
-        KeyCombination(int key, bool ctrl_mod = false, bool alt_mod = false, 
-                      bool shift_mod = false, bool super_mod = false)
-            : keyCode(key), ctrl(ctrl_mod), alt(alt_mod), shift(shift_mod), super(super_mod) {}
+        KeyCombination(int key, bool ctrl_mod = false, bool alt_mod = false, bool shift_mod = false, bool super_mod = false) : keyCode(key), ctrl(ctrl_mod), alt(alt_mod), shift(shift_mod), super(super_mod) {}
         
         bool operator==(const KeyCombination& other) const {
-            return keyCode == other.keyCode && ctrl == other.ctrl && 
-                   alt == other.alt && shift == other.shift && super == other.super;
+            return keyCode == other.keyCode && ctrl == other.ctrl && alt == other.alt && shift == other.shift && super == other.super;
         }
         
         bool operator<(const KeyCombination& other) const {
@@ -63,34 +60,56 @@ namespace config {
     /**
      * @brief Types of actions that can be bound to keys
      */
-    enum class ActionType {
-        UNKNOWN,
-        SWITCH_FOCUS_NEXT,          // Switch to next focused window
-        SWITCH_FOCUS_PREVIOUS,      // Switch to previous focused window
-        MOVE_WINDOW_FULLSCREEN,     // Move current window to fullscreen
-        MOVE_WINDOW_LEFT,           // Move current window to left half
-        MOVE_WINDOW_RIGHT,          // Move current window to right half
-        MOVE_WINDOW_TOP,            // Move current window to top half
-        MOVE_WINDOW_BOTTOM,         // Move current window to bottom half
-        CLOSE_FOCUSED_WINDOW,       // Close the currently focused window
-        TOGGLE_ZOOM,                // Toggle zoom on focused window
-        INCREASE_ZOOM,              // Increase zoom on focused window
-        DECREASE_ZOOM,              // Decrease zoom on focused window
-        CUSTOM                      // Custom user-defined action
+    // Bitmask-based action flags to allow combining behaviors (e.g., MOVE + DIR_UP + DIR_LEFT)
+    enum class ActionBits : uint32_t {
+        NONE                = 0,
+
+        // Single, non-combinable actions (category bits)
+        SWITCH_FOCUS_NEXT   = 1u << 0,
+        SWITCH_FOCUS_PREV   = 1u << 1,
+        CLOSE_WINDOW        = 1u << 2,
+        TOGGLE_ZOOM         = 1u << 3,
+        ZOOM_IN             = 1u << 4,
+        ZOOM_OUT            = 1u << 5,
+
+        // Movement category
+        MOVE                = 1u << 8,
+        FULLSCREEN          = 1u << 9,   // Can be used alone or with MOVE
+
+        // Direction sub-flags (can be combined with MOVE)
+        DIR_UP              = 1u << 16,
+        DIR_DOWN            = 1u << 17,
+        DIR_LEFT            = 1u << 18,
+        DIR_RIGHT           = 1u << 19,
+
+        CUSTOM              = 1u << 31
     };
+
+    inline constexpr ActionBits operator|(ActionBits a, ActionBits b) {
+        return static_cast<ActionBits>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    }
+    inline constexpr ActionBits operator&(ActionBits a, ActionBits b) {
+        return static_cast<ActionBits>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+    }
+    inline constexpr ActionBits& operator|=(ActionBits& a, ActionBits b) {
+        a = a | b; return a;
+    }
+    inline constexpr bool hasFlag(ActionBits a, ActionBits b) {
+        return (static_cast<uint32_t>(a) & static_cast<uint32_t>(b)) != 0u;
+    }
 
     /**
      * @brief Represents an action that can be executed
      */
     struct Action {
-        ActionType type;
+        ActionBits flags;
         std::string customCommand;      // For custom actions
         std::function<void()> callback; // Runtime callback function
-        
-        Action() : type(ActionType::UNKNOWN) {}
-        Action(ActionType actionType) : type(actionType) {}
-        Action(const std::string& command) : type(ActionType::CUSTOM), customCommand(command) {}
-        
+
+        Action() : flags(ActionBits::NONE) {}
+        explicit Action(ActionBits f) : flags(f) {}
+        explicit Action(const std::string& command) : flags(ActionBits::CUSTOM), customCommand(command) {}
+
         void execute() const;
         std::string toString() const;
         static Action fromString(const std::string& str);
@@ -106,8 +125,7 @@ namespace config {
         bool enabled;
         
         KeyBind() : enabled(true) {}
-        KeyBind(const KeyCombination& keyComb, const Action& act, const std::string& desc = "")
-            : key(keyComb), action(act), description(desc), enabled(true) {}
+        KeyBind(const KeyCombination& keyComb, const Action& act, const std::string& desc = "") : key(keyComb), action(act), description(desc), enabled(true) {}
     };
 
     /**
@@ -192,6 +210,8 @@ namespace config {
         bool isKeybindActive(const KeyCombination& key) const;
         Action getAction(const KeyCombination& key) const;
         std::vector<KeyBind> getAllKeybinds() const;
+        // Utility for checking flags quickly
+        static inline bool actionHas(const Action& a, ActionBits f) { return hasFlag(a.flags, f); }
         
         // Configuration access
         Configuration& getConfiguration() { return config; }
@@ -231,6 +251,9 @@ namespace config {
         bool addKeybind(const KeyCombination& key, const Action& action, const std::string& description = "");
         bool removeKeybind(const KeyCombination& key);
         std::vector<KeyBind> getAllKeybinds();
+        // New lightweight lookups for combo resolution
+        bool isKeybindActive(const KeyCombination& key);
+        Action getAction(const KeyCombination& key);
         
         // Configuration accessors
         uint32_t getBackgroundColor();

@@ -14,14 +14,11 @@ project(
   default_options : ['warning_level=3', 'cpp_std=c++17', 'debug=true', 'buildtype=debug']
   #RELEASE
   #default_options : ['warning_level=3', 'cpp_std=c++17', 'debug=false', 'buildtype=release', 'optimization=3']
-  #PROFILE
-  #default_options : ['warning_level=3', 'cpp_std=c++17', 'debug=true', 'buildtype=debug', 'b_ndebug=false', 'b_lto=false']
 )
 
 # Build type options
 DEBUG = 1
 RELEASE = 2
-PROFILE = 3
 TYPE = DEBUG  # Change this to RELEASE or PROFILE for different build types
 
 # Source files for the project
@@ -36,14 +33,6 @@ sources = [
   '../src/logger.cpp',
   '../src/config.cpp'
 ]
-
-# SIMD and CPU-specific options
-SSE     = '-msse'
-AVX     = '-mavx'
-AVX512  = '-mavx512f'
-
-# Default SIMD mode (can be adjusted for specific requirements)
-SIMD_MODE = ''
 
 # Common C++ compiler flags
 cpp_args = [
@@ -67,17 +56,6 @@ cpp_args = [
   # '-fno-semantic-interposition', # Disable semantic interposition
 ]
 
-# Platform-specific settings
-# Check if we're on an Android environment
-if host_machine.system() == 'android'
-  message('Android environment detected: Disabling SIMD flags')
-  # Disable SIMD flags on Android due to potential compatibility issues
-else
-  if SIMD_MODE != ''
-    cpp_args += [SIMD_MODE]  # Only add SIMD_MODE if it's not empty
-  endif
-endif
-
 # Linker arguments (e.g., libraries)
 link_args = []
 
@@ -85,21 +63,14 @@ link_args = []
 
 # Add custom flags based on build type
 if TYPE == DEBUG
-  cpp_args += ['-DGGDirect_DEBUG', '-Og', '-flto', '-fwhole-program']
-  link_args += ['-flto', '-fwhole-program']
+  cpp_args += ['-DGGDirect_DEBUG']
 elif TYPE == RELEASE
   cpp_args += ['-DGGDirect_RELEASE', '-march=native', '-flto', '-fwhole-program']
   link_args += ['-flto', '-fwhole-program']
-elif TYPE == PROFILE
-  cpp_args += ['-DGGDirect_PROFILE', '-DGGDirect_DEBUG', '-pg']
-  link_args += ['-pg']
 endif
 
 if TYPE == DEBUG or TYPE == PROFILE
-  # Windows-specific settings (e.g., for debugging)
-  if host_machine.system() == 'windows'
-    link_args += ['-lDbgHelp', '-Wl,--export-all-symbols']    # Link with DbgHelp library for better debugging support
-  elif host_machine.system() == 'linux'
+  if host_machine.system() == 'linux'
     # Linux-specific settings can be added here if needed
     cpp_args += ['-rdynamic']  
   endif
@@ -107,11 +78,10 @@ endif
 
 # Dependencies
 drm_dep = dependency('libdrm', required: true)
-thread_dep = dependency('threads', required: true)
-freetype_dep = dependency('freetype2', required: true)
-libevdev_dep = dependency('libevdev', required: true) # if not found use: libevdev-dev or libevdev
+freetype_dep = dependency('freetype2', required: true)    # For font rendering
+libevdev_dep = dependency('libevdev', required: true)     # If not found use: libevdev-dev or libevdev
 
-dependencies = [drm_dep, thread_dep, freetype_dep, libevdev_dep]
+dependencies = [drm_dep, freetype_dep, libevdev_dep]
 
 # Define the executable to be built
 executable(

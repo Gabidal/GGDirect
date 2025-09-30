@@ -1095,6 +1095,20 @@ namespace config {
             
             return wallpaperImage.copyRegionToBuffer(startX, startY, regionWidth, regionHeight, destBuffer, destWidth);
         }
+
+        bool getWallpaperData(const uint32_t*& data, int& width, int& height) {
+            if (!wallpaperImage.isValid || wallpaperImage.pixels.empty()) {
+                data = nullptr;
+                width = 0;
+                height = 0;
+                return false;
+            }
+
+            data = wallpaperImage.pixels.data();
+            width = wallpaperImage.width;
+            height = wallpaperImage.height;
+            return true;
+        }
     }
 
     // Utility functions implementation

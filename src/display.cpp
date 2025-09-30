@@ -10,6 +10,7 @@
 #include <sys/select.h>
 #include <stdexcept>
 #include <errno.h>
+#include <gbm.h>
 
 extern "C" {
 #include <xf86drm.h>
@@ -108,7 +109,15 @@ namespace display {
     //===============================================================================
 
     frameBuffer::frameBuffer(const FramebufferInfo& Info)
-        : framebufferId(0), info(Info), buffer(nullptr), mapped(false), dmaBufFd(-1) {}
+        : backend(Backend::Unknown),
+          dumbHandle(0),
+          gbmBo(nullptr),
+          externalBufferOwner(false),
+          framebufferId(0),
+          info(Info),
+          buffer(nullptr),
+          mapped(false),
+          dmaBufFd(-1) {}
 
     frameBuffer::~frameBuffer() {
         unmap();
@@ -118,8 +127,19 @@ namespace display {
     }
 
     frameBuffer::frameBuffer(frameBuffer&& other) noexcept
-        : framebufferId(other.framebufferId), info(other.info), buffer(other.buffer),
-        mapped(other.mapped), dmaBufFd(other.dmaBufFd) {
+        : backend(other.backend),
+          dumbHandle(other.dumbHandle),
+          gbmBo(other.gbmBo),
+          externalBufferOwner(other.externalBufferOwner),
+          framebufferId(other.framebufferId),
+          info(other.info),
+          buffer(other.buffer),
+          mapped(other.mapped),
+          dmaBufFd(other.dmaBufFd) {
+        other.backend = Backend::Unknown;
+        other.dumbHandle = 0;
+        other.gbmBo = nullptr;
+        other.externalBufferOwner = false;
         other.framebufferId = 0;
         other.buffer = nullptr;
         other.mapped = false;
@@ -133,12 +153,20 @@ namespace display {
                 close(dmaBufFd);
             }
             
+            backend = other.backend;
+            dumbHandle = other.dumbHandle;
+            gbmBo = other.gbmBo;
+            externalBufferOwner = other.externalBufferOwner;
             framebufferId = other.framebufferId;
             info = other.info;
             buffer = other.buffer;
             mapped = other.mapped;
             dmaBufFd = other.dmaBufFd;
             
+            other.backend = Backend::Unknown;
+            other.dumbHandle = 0;
+            other.gbmBo = nullptr;
+            other.externalBufferOwner = false;
             other.framebufferId = 0;
             other.buffer = nullptr;
             other.mapped = false;
@@ -177,6 +205,8 @@ namespace display {
             
             // Assign a dummy framebuffer ID
             framebufferId = 1;
+            backend = Backend::Headless;
+            externalBufferOwner = false;
             mapped = true;
             
             LOG_INFO() << "Software framebuffer created: " << info.width << "x" << info.height << " (" << info.size << " bytes)" << std::endl;
@@ -203,8 +233,11 @@ namespace display {
         }
         
         // Update framebuffer info with actual values
-        info.pitch = create_dumb.pitch;
-        info.size = create_dumb.size;
+    info.pitch = create_dumb.pitch;
+    info.size = create_dumb.size;
+    backend = Backend::Dumb;
+    externalBufferOwner = false;
+    assignDumbHandle(create_dumb.handle);
         
         LOG_INFO() << "Dumb buffer created successfully - handle: " << create_dumb.handle << 
                      ", pitch: " << info.pitch << ", size: " << info.size << std::endl;
@@ -260,35 +293,56 @@ namespace display {
         return true;
     }
 
+    void frameBuffer::releaseKernelBuffer(int drmFd) {
+        if (backend == Backend::Dumb && dumbHandle != 0 && drmFd >= 0) {
+            struct drm_mode_destroy_dumb destroy_dumb = {};
+            destroy_dumb.handle = dumbHandle;
+            if (ioctl(drmFd, DRM_IOCTL_MODE_DESTROY_DUMB, &destroy_dumb) != 0) {
+                LOG_ERROR() << "Failed to destroy dumb buffer: " << strerror(errno) << std::endl;
+            }
+            dumbHandle = 0;
+        }
+
+        if (backend == Backend::GBM) {
+            gbmBo = nullptr;
+        }
+    }
+
     void frameBuffer::unmap() {
-        if (mapped && buffer) {
-            // Get device file descriptor from the display manager
-            int drmFd = -1;
-            if (display::manager::Device) {
-                drmFd = display::manager::Device->getDeviceFd();
-            }
-            
-            // Check if we're in headless mode
-            if (drmFd == -2) {
-                // Free software buffer
-                free(buffer);
-                buffer = nullptr;
-                mapped = false;
-                framebufferId = 0;
-                return;
-            }
-            
-            // Unmap the buffer
-            munmap(buffer, info.size);
+        int drmFd = -1;
+        if (display::manager::Device) {
+            drmFd = display::manager::Device->getDeviceFd();
+        }
+
+        if (backend == Backend::Headless && buffer) {
+            free(buffer);
             buffer = nullptr;
             mapped = false;
-            
-            // Remove framebuffer from DRM
-            if (framebufferId > 0 && drmFd >= 0) {
-                drmModeRmFB(drmFd, framebufferId);
-                framebufferId = 0;
+            framebufferId = 0;
+        } else if (mapped && buffer) {
+            if (drmFd >= 0) {
+                munmap(buffer, info.size);
             }
+            buffer = nullptr;
+            mapped = false;
         }
+
+        if (framebufferId > 0 && drmFd >= 0) {
+            drmModeRmFB(drmFd, framebufferId);
+            framebufferId = 0;
+        }
+
+        if (!externalBufferOwner) {
+            releaseKernelBuffer(drmFd);
+        } else if (backend == Backend::GBM) {
+            gbmBo = nullptr;
+        }
+
+        externalBufferOwner = false;
+        backend = Backend::Unknown;
+        buffer = nullptr;
+        mapped = false;
+        dmaBufFd = -1;
     }
 
     void frameBuffer::clear(uint32_t color) {
@@ -761,7 +815,7 @@ namespace display {
 
     device::device(const std::string& DevicePath)
         : devicePath(DevicePath), deviceFd(-1), initialized(false),
-        atomicSupported(false), atomicReq(nullptr) {}
+        atomicSupported(false), atomicReq(nullptr), gbmDevice(nullptr) {}
 
     device::~device() {
         cleanup();
@@ -774,10 +828,12 @@ namespace display {
         encoders(std::move(other.encoders)), planes(std::move(other.planes)),
         framebuffers(std::move(other.framebuffers)),
         pageFlipHandler(std::move(other.pageFlipHandler)),
-        atomicReq(other.atomicReq) {
+        atomicReq(other.atomicReq),
+        gbmDevice(other.gbmDevice) {
         other.deviceFd = -1;
         other.initialized = false;
         other.atomicReq = nullptr;
+        other.gbmDevice = nullptr;
 
 
     }
@@ -797,10 +853,12 @@ namespace display {
             framebuffers = std::move(other.framebuffers);
             pageFlipHandler = std::move(other.pageFlipHandler);
             atomicReq = other.atomicReq;
+            gbmDevice = other.gbmDevice;
             
             other.deviceFd = -1;
             other.initialized = false;
             other.atomicReq = nullptr;
+            other.gbmDevice = nullptr;
         }
         return *this;
     }
@@ -825,6 +883,15 @@ namespace display {
             
             initialized = true;
             return true;
+        }
+
+        if (deviceFd >= 0) {
+            gbmDevice = gbm_create_device(deviceFd);
+            if (!gbmDevice) {
+                LOG_ERROR() << "Failed to create GBM device" << std::endl;
+                cleanup();
+                return false;
+            }
         }
         
         // Check for atomic mode setting support
@@ -865,6 +932,11 @@ namespace display {
         encoders.clear();
         crtcs.clear();
         connectors.clear();
+
+        if (gbmDevice) {
+            gbm_device_destroy(gbmDevice);
+            gbmDevice = nullptr;
+        }
         
         closeDevice();
         initialized = false;
@@ -957,9 +1029,48 @@ namespace display {
         return fb;
     }
 
+    std::shared_ptr<frameBuffer> device::createFramebufferFromBo(struct gbm_bo* bo, uint32_t format) {
+        if (!bo || deviceFd < 0) {
+            return nullptr;
+        }
+
+        frameBuffer::FramebufferInfo info;
+        info.width = gbm_bo_get_width(bo);
+        info.height = gbm_bo_get_height(bo);
+        info.pitch = gbm_bo_get_stride(bo);
+        info.format = format;
+        info.bpp = 32;
+        info.depth = 24;
+        info.size = static_cast<size_t>(info.pitch) * static_cast<size_t>(info.height);
+
+        uint32_t handles[4] = {0};
+        uint32_t strides[4] = {0};
+        uint32_t offsets[4] = {0};
+
+        handles[0] = gbm_bo_get_handle(bo).u32;
+        strides[0] = info.pitch;
+        offsets[0] = 0;
+
+        uint32_t fbId = 0;
+        if (drmModeAddFB2(deviceFd, info.width, info.height, format, handles, strides, offsets, &fbId, 0) != 0) {
+            LOG_ERROR() << "Failed to create framebuffer from GBM BO: " << strerror(errno) << std::endl;
+            return nullptr;
+        }
+
+        auto fb = std::make_shared<frameBuffer>(info);
+        fb->setFramebufferId(fbId);
+        fb->setBackend(frameBuffer::Backend::GBM);
+        fb->assignGbmBo(bo, true);
+        framebuffers.push_back(fb);
+        return fb;
+    }
+
     bool device::destroyFramebuffer(std::shared_ptr<frameBuffer> fb) {
         auto it = std::find(framebuffers.begin(), framebuffers.end(), fb);
         if (it != framebuffers.end()) {
+            if (*it) {
+                (*it)->unmap();
+            }
             framebuffers.erase(it);
             return true;
         }
@@ -1739,6 +1850,7 @@ namespace display {
         std::map<uint32_t, std::shared_ptr<connector>> activeDisplays;
         std::function<void(std::shared_ptr<connector>, bool)> hotplugHandler;
         static bool pageFlipPending = false;  // Track if a page flip is currently pending
+        static std::function<void()> pageFlipCompletionHook;
     }
 
     bool manager::initialize(const std::string& devicePath) {
@@ -1747,7 +1859,10 @@ namespace display {
         // Set up page flip completion handler to track pending state
         if (Device) {
             Device->setPageFlipHandler([]([[maybe_unused]] uint32_t crtc_id, [[maybe_unused]] uint32_t sequence, [[maybe_unused]] void* user_data) {
-                pageFlipPending = false; // Reset pending state when page flip completes
+                pageFlipPending = false;
+                if (pageFlipCompletionHook) {
+                    pageFlipCompletionHook();
+                }
             });
         }
         
@@ -1760,6 +1875,7 @@ namespace display {
             Device.reset();
         }
         activeDisplays.clear();
+        pageFlipCompletionHook = nullptr;
     }
 
     std::vector<std::shared_ptr<connector>> manager::getAvailableDisplays() {
@@ -1970,6 +2086,10 @@ namespace display {
 
     bool manager::processEvents(int timeoutMs) {
         return Device ? Device->handleEvents(timeoutMs) : false;
+    }
+
+    void manager::setPageFlipCompletionHook(std::function<void()> hook) {
+        pageFlipCompletionHook = std::move(hook);
     }
 
     void manager::setHotplugHandler(std::function<void(std::shared_ptr<connector>, bool)> handler) {

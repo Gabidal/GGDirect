@@ -27,6 +27,7 @@ sources = [
   '../src/window.cpp',
   '../src/display.cpp',
   '../src/renderer.cpp',
+  '../src/gpu_context.cpp',
   '../src/font.cpp',
   '../src/system.cpp',
   '../src/input.cpp',
@@ -80,8 +81,11 @@ endif
 drm_dep = dependency('libdrm', required: true)
 freetype_dep = dependency('freetype2', required: true)    # For font rendering
 libevdev_dep = dependency('libevdev', required: true)     # If not found use: libevdev-dev or libevdev
+gbm_dep = dependency('gbm', required: true)   #install from libgbm-dev
+egl_dep = dependency('egl', required: true)
+gles_dep = dependency('glesv2', required: true)
 
-dependencies = [drm_dep, freetype_dep, libevdev_dep]
+dependencies = [drm_dep, freetype_dep, libevdev_dep, gbm_dep, egl_dep, gles_dep]
 
 # Define the executable to be built
 executable(

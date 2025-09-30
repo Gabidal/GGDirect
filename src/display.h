@@ -29,6 +29,11 @@ extern "C" {
     typedef struct _drmModeFB drmModeFB;
 }
 
+// Forward declarations for GBM types
+struct gbm_device;
+struct gbm_bo;
+struct gbm_surface;
+
 namespace display {
 
     // Forward declarations
@@ -124,6 +129,13 @@ namespace display {
      */
     class frameBuffer {
     public:
+        enum class Backend {
+            Unknown,
+            Dumb,
+            GBM,
+            Headless
+        };
+
         struct FramebufferInfo {
             uint32_t width;
             uint32_t height;
@@ -152,6 +164,8 @@ namespace display {
         void* getBuffer() const { return buffer; }
         size_t getSize() const { return info.size; }
         types::iVector2 getRenderableArea() const;      // <-- Use this one to get indexable buffer dimensions!
+        Backend getBackend() const { return backend; }
+        struct gbm_bo* getGbmBo() const { return gbmBo; }
 
         // Buffer operations
         bool map();
@@ -160,6 +174,21 @@ namespace display {
         void fillRect(const types::iVector2& pos, const types::iVector2& size, uint32_t color);
 
     private:
+        friend class device;
+
+        void setFramebufferId(uint32_t id) { framebufferId = id; }
+        void setBackend(Backend backendType) { backend = backendType; }
+        void assignDumbHandle(uint32_t handle) { dumbHandle = handle; }
+        void assignGbmBo(struct gbm_bo* bo, bool externalOwner) {
+            gbmBo = bo;
+            externalBufferOwner = externalOwner;
+        }
+        void releaseKernelBuffer(int drmFd);
+
+        Backend backend;
+        uint32_t dumbHandle;
+        struct gbm_bo* gbmBo;
+        bool externalBufferOwner;
         uint32_t framebufferId;
         FramebufferInfo info;
         void* buffer;
@@ -411,9 +440,10 @@ namespace display {
         std::shared_ptr<plane> getPlane(uint32_t id) const;
         std::vector<std::shared_ptr<plane>> getPlanesByType(plane::Type type) const;
 
-        // Framebuffer management
-        std::shared_ptr<frameBuffer> createFramebuffer(const frameBuffer::FramebufferInfo& info);
-        bool destroyFramebuffer(std::shared_ptr<frameBuffer> fb);
+    // Framebuffer management
+    std::shared_ptr<frameBuffer> createFramebuffer(const frameBuffer::FramebufferInfo& info);
+    std::shared_ptr<frameBuffer> createFramebufferFromBo(struct gbm_bo* bo, uint32_t format);
+    bool destroyFramebuffer(std::shared_ptr<frameBuffer> fb);
 
         // Mode setting operations
         bool setMode(std::shared_ptr<connector> connector, const mode& mode);
@@ -432,9 +462,10 @@ namespace display {
         void setPageFlipHandler(std::function<void(uint32_t, uint32_t, void*)> handler);
 
         // Utility methods
-        int getDeviceFd() const { return deviceFd; }
-        const std::string& getDevicePath() const { return devicePath; }
-        bool supportsAtomic() const { return atomicSupported; }
+    int getDeviceFd() const { return deviceFd; }
+    const std::string& getDevicePath() const { return devicePath; }
+    struct gbm_device* getGbmDevice() const { return gbmDevice; }
+    bool supportsAtomic() const { return atomicSupported; }
 
     private:
         std::string devicePath;
@@ -453,7 +484,9 @@ namespace display {
         std::function<void(uint32_t, uint32_t, void*)> pageFlipHandler;
 
         // Atomic commit state
-        void* atomicReq;
+    void* atomicReq;
+
+    struct gbm_device* gbmDevice;
 
         // Private methods
         bool openDevice();
@@ -488,6 +521,7 @@ namespace display {
         // Rendering context
         std::shared_ptr<frameBuffer> createFramebuffer(uint32_t width, uint32_t height, uint32_t format);
         bool present(std::shared_ptr<connector> connector, std::shared_ptr<frameBuffer> fb);
+    void setPageFlipCompletionHook(std::function<void()> hook);
 
         // Event handling
         bool processEvents(int timeoutMs = 0);

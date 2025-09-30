@@ -263,6 +263,7 @@ namespace config {
         
         // Optimized wallpaper region access for efficient copying
         bool getWallpaperRegion(int startX, int startY, int regionWidth, int regionHeight, uint32_t* destBuffer, int destWidth);
+        bool getWallpaperData(const uint32_t*& data, int& width, int& height);
     }
 
     /**

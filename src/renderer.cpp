@@ -684,6 +684,7 @@ bool startCpuRenderer(bool forcedFallback, bool headlessDevice) {
                 });
 
                 for (auto& handle : handles) {
+                    handle.poll();
                     activeHandles.insert(&handle);
                     if (renderHandleCpu(&handle, framebufferPtr, stridePixels, fbSize)) {
                         frameDrawn = true;
@@ -843,6 +844,7 @@ void init() {
                 renderWallpaperGpu();
 
                 for (auto& handle : handles) {
+                    handle.poll();
                     activeHandles.insert(&handle);
                     if (renderHandleGpu(&handle)) {
                         frameDrawn = true;

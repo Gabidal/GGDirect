@@ -4,11 +4,13 @@
 #include "window.h"
 #include "input.h"
 #include "config.h"
+#include "display.h"
 
 #include <signal.h>
 #include <initializer_list>
 #include <cstdlib>
 #include <iostream>
+#include <stdexcept>
 
 namespace DRM {
     namespace system {
@@ -44,6 +46,17 @@ namespace DRM {
                 config::manager::init();
                 logger::info("Configuration system initialized successfully.");
                 
+                // Initialize the display subsystem (supports headless mode)
+                if (!display::manager::initialize()) {
+                    throw std::runtime_error("Failed to initialize display subsystem");
+                }
+
+                logger::info("Display subsystem initialized successfully.");
+
+                if (display::manager::Device && display::manager::Device->getDeviceFd() == -2) {
+                    LOG_INFO() << "Running without GPU output (headless mode detected)." << std::endl;
+                }
+
                 // Initialize the window manager
                 window::manager::init();
                 logger::info("Window manager initialized successfully.");
@@ -54,7 +67,11 @@ namespace DRM {
                 
                 // Initialize the renderer
                 renderer::init();
-                logger::info("Renderer initialized successfully.");
+                if (display::manager::Device && display::manager::Device->getDeviceFd() == -2) {
+                    logger::info("Renderer initialization skipped (headless mode).");
+                } else {
+                    logger::info("Renderer initialized successfully.");
+                }
                 
                 logger::info("GGDirect is ready. Press Ctrl+C to exit.");
 
@@ -85,6 +102,9 @@ namespace DRM {
             // Clean up window manager last (stops reception thread and closes connections)
             // This may take up to 200ms to complete
             window::manager::close();
+
+            // Release display resources
+            display::manager::cleanup();
 
             LOG_VERBOSE() << "System cleanup completed." << std::endl;
 

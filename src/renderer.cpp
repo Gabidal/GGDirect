@@ -12,12 +12,19 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <cstdlib>
+#include <string>
+#include <cctype>
 #include <mutex>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include <GLES2/gl2.h>
+
+extern "C" {
+#include <drm_fourcc.h>
+}
 
 namespace renderer {
 
@@ -31,7 +38,7 @@ struct ShaderProgram {
     GLint uniformTexture = -1;
 };
 
-struct HandleGpuResources {
+struct HandleRenderResources {
     GLuint textureId = 0;
     int pixelWidth = 0;
     int pixelHeight = 0;
@@ -85,13 +92,38 @@ bool wallpaperReady = false;
 std::shared_ptr<display::connector> primaryConnector;
 std::unique_ptr<display::mode> currentMode;
 
+enum class RendererBackend {
+    GPU,
+    CPU
+};
+
+RendererBackend activeBackend = RendererBackend::GPU;
 bool rendererInitialized = false;
 bool shouldExit = false;
 
-std::unordered_map<const window::handle*, HandleGpuResources> handleResources;
+std::unordered_map<const window::handle*, HandleRenderResources> handleResources;
 types::iVector2 framebufferResolution;
 
 gpu::Context gpuContext;
+
+std::shared_ptr<display::frameBuffer> cpuFramebuffer;
+
+bool isEnvFlagEnabled(const char* value) {
+    if (!value) {
+        return false;
+    }
+
+    std::string normalized(value);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+
+    return !(normalized.empty() || normalized == "0" || normalized == "false" || normalized == "no" || normalized == "off");
+}
+
+bool shouldForceCpuBackend() {
+    return isEnvFlagEnabled(std::getenv("GGDIRECT_FORCE_CPU"));
+}
 
 constexpr GLsizei kVerticesPerQuad = 4;
 constexpr GLsizei kFloatsPerVertex = 4;
@@ -287,7 +319,7 @@ void uploadWallpaperTextureIfNeeded() {
     wallpaperPath = desiredPath;
 }
 
-void destroyHandleResources(HandleGpuResources& resources) {
+void destroyHandleResources(HandleRenderResources& resources) {
     if (resources.textureId) {
         glDeleteTextures(1, &resources.textureId);
         resources.textureId = 0;
@@ -342,7 +374,7 @@ void blitCellToBuffer(uint32_t* buffer, int bufferWidth, int bufferHeight, int s
     }
 }
 
-HandleGpuResources& getHandleResources(const window::handle* handle, int pixelWidth, int pixelHeight) {
+HandleRenderResources& getHandleResources(const window::handle* handle, int pixelWidth, int pixelHeight) {
     auto& resources = handleResources[handle];
     if (resources.pixelWidth != pixelWidth || resources.pixelHeight != pixelHeight) {
         resources.pixelWidth = pixelWidth;
@@ -368,7 +400,7 @@ void removeStaleHandleResources(const std::unordered_set<const window::handle*>&
     }
 }
 
-bool uploadHandleTexture(HandleGpuResources& resources) {
+bool uploadHandleTexture(HandleRenderResources& resources) {
     if (resources.pixelBuffer.empty() || resources.pixelWidth <= 0 || resources.pixelHeight <= 0) {
         return false;
     }
@@ -389,7 +421,12 @@ bool uploadHandleTexture(HandleGpuResources& resources) {
     return true;
 }
 
-bool renderHandleInternal(const window::handle* handle) {
+struct RasterizedWindow {
+    HandleRenderResources* resources = nullptr;
+    types::rectangle pixelRect{};
+};
+
+bool rasterizeHandle(const window::handle* handle, RasterizedWindow& outWindow) {
     if (!handle || handle->connection.isClosed()) {
         return false;
     }
@@ -445,21 +482,133 @@ bool renderHandleInternal(const window::handle* handle) {
         blitCellToBuffer(resources.pixelBuffer.data(), windowWidth, windowHeight, bufferStartX, bufferStartY, cellCache);
         }
     }
+    outWindow.resources = &resources;
+    outWindow.pixelRect = windowPixelRect;
+    return true;
+}
 
+bool renderHandleGpu(const window::handle* handle) {
+    RasterizedWindow windowInfo;
+    if (!rasterizeHandle(handle, windowInfo)) {
+        return false;
+    }
+
+    auto& resources = *windowInfo.resources;
     if (!uploadHandleTexture(resources)) {
         return false;
     }
 
     drawQuad(resources.textureId,
-             static_cast<float>(windowPixelRect.position.x),
-             static_cast<float>(windowPixelRect.position.y),
-             static_cast<float>(windowWidth),
-             static_cast<float>(windowHeight));
+             static_cast<float>(windowInfo.pixelRect.position.x),
+             static_cast<float>(windowInfo.pixelRect.position.y),
+             static_cast<float>(resources.pixelWidth),
+             static_cast<float>(resources.pixelHeight));
+    return true;
+}
+
+void compositeHandleCpu(const HandleRenderResources& resources,
+                        const types::rectangle& pixelRect,
+                        uint32_t* framebuffer,
+                        int stridePixels,
+                        const types::iVector2& fbSize) {
+    if (!framebuffer || resources.pixelBuffer.empty()) {
+        return;
+    }
+
+    int destX = pixelRect.position.x;
+    int destY = pixelRect.position.y;
+    int copyWidth = resources.pixelWidth;
+    int copyHeight = resources.pixelHeight;
+
+    int srcOffsetX = 0;
+    int srcOffsetY = 0;
+
+    if (destX < 0) {
+        srcOffsetX = -destX;
+        copyWidth -= srcOffsetX;
+        destX = 0;
+    }
+    if (destY < 0) {
+        srcOffsetY = -destY;
+        copyHeight -= srcOffsetY;
+        destY = 0;
+    }
+
+    if (destX >= fbSize.x || destY >= fbSize.y) {
+        return;
+    }
+
+    copyWidth = std::min(copyWidth, fbSize.x - destX);
+    copyHeight = std::min(copyHeight, fbSize.y - destY);
+
+    if (copyWidth <= 0 || copyHeight <= 0) {
+        return;
+    }
+
+    for (int y = 0; y < copyHeight; ++y) {
+        const uint32_t* srcRow = resources.pixelBuffer.data() + (srcOffsetY + y) * resources.pixelWidth + srcOffsetX;
+        uint32_t* dstRow = framebuffer + (destY + y) * stridePixels + destX;
+        std::memcpy(dstRow, srcRow, static_cast<size_t>(copyWidth) * sizeof(uint32_t));
+    }
+}
+
+bool renderHandleCpu(const window::handle* handle,
+                     uint32_t* framebuffer,
+                     int stridePixels,
+                     const types::iVector2& fbSize) {
+    RasterizedWindow windowInfo;
+    if (!rasterizeHandle(handle, windowInfo)) {
+        return false;
+    }
+
+    compositeHandleCpu(*windowInfo.resources, windowInfo.pixelRect, framebuffer, stridePixels, fbSize);
+    return true;
+}
+
+bool renderWallpaperCpu(uint32_t* framebuffer,
+                        int stridePixels,
+                        const types::iVector2& fbSize) {
+    if (!framebuffer) {
+        return false;
+    }
+
+    const uint32_t* data = nullptr;
+    int width = 0;
+    int height = 0;
+    if (!config::manager::getWallpaperData(data, width, height) || !data) {
+        return false;
+    }
+
+    int copyWidth = std::min(width, fbSize.x);
+    int copyHeight = std::min(height, fbSize.y);
+    if (copyWidth <= 0 || copyHeight <= 0) {
+        return false;
+    }
+
+    for (int y = 0; y < copyHeight; ++y) {
+        const uint32_t* srcRow = data + y * width;
+        uint32_t* dstRow = framebuffer + y * stridePixels;
+        std::memcpy(dstRow, srcRow, static_cast<size_t>(copyWidth) * sizeof(uint32_t));
+    }
 
     return true;
 }
 
-void renderWallpaper() {
+void clearFramebufferCpu(uint32_t* framebuffer,
+                         int stridePixels,
+                         const types::iVector2& fbSize,
+                         uint32_t color) {
+    if (!framebuffer) {
+        return;
+    }
+
+    for (int y = 0; y < fbSize.y; ++y) {
+        uint32_t* row = framebuffer + y * stridePixels;
+        std::fill(row, row + fbSize.x, color);
+    }
+}
+
+void renderWallpaperGpu() {
     if (!wallpaperReady || !wallpaperTexture) {
         return;
     }
@@ -482,6 +631,104 @@ void registerPageFlipHook() {
     });
 }
 
+bool startCpuRenderer(bool forcedFallback, bool headlessDevice) {
+    activeBackend = RendererBackend::CPU;
+
+    cpuFramebuffer = display::manager::createFramebuffer(framebufferResolution.x, framebufferResolution.y, DRM_FORMAT_XRGB8888);
+    if (!cpuFramebuffer) {
+        LOG_ERROR() << "Failed to allocate framebuffer for CPU renderer" << std::endl;
+        return false;
+    }
+
+    if (!cpuFramebuffer->map()) {
+        LOG_ERROR() << "Failed to map framebuffer for CPU renderer" << std::endl;
+        cpuFramebuffer.reset();
+        return false;
+    }
+
+    shouldExit = false;
+
+    std::thread renderingThread([headlessDevice]() {
+        size_t framesRendered = 0;
+        auto lastLog = std::chrono::high_resolution_clock::now();
+
+        while (!shouldExit) {
+            if (!cpuFramebuffer) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                continue;
+            }
+
+            uint32_t* framebufferPtr = static_cast<uint32_t*>(cpuFramebuffer->getBuffer());
+            if (!framebufferPtr) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                continue;
+            }
+
+            types::iVector2 fbSize = cpuFramebuffer->getRenderableArea();
+            fbSize.x = std::min(fbSize.x, framebufferResolution.x);
+            fbSize.y = std::min(fbSize.y, framebufferResolution.y);
+            int stridePixels = static_cast<int>(cpuFramebuffer->getPitch() / 4);
+
+            uint32_t bgColor = config::manager::getBackgroundColor();
+            uint32_t bgPixel = 0xFF000000u | (bgColor & 0x00FFFFFFu);
+            clearFramebufferCpu(framebufferPtr, stridePixels, fbSize, bgPixel);
+
+            bool frameDrawn = renderWallpaperCpu(framebufferPtr, stridePixels, fbSize);
+            std::unordered_set<const window::handle*> activeHandles;
+
+            window::manager::handles([&](std::vector<window::handle>& handles) {
+                std::sort(handles.begin(), handles.end(), [](const window::handle& a, const window::handle& other) {
+                    types::rectangle aRect = a.getCellCoordinates();
+                    types::rectangle bRect = other.getCellCoordinates();
+                    return aRect.position.z < bRect.position.z;
+                });
+
+                for (auto& handle : handles) {
+                    activeHandles.insert(&handle);
+                    if (renderHandleCpu(&handle, framebufferPtr, stridePixels, fbSize)) {
+                        frameDrawn = true;
+                    }
+                }
+            });
+
+            removeStaleHandleResources(activeHandles);
+            window::manager::cleanupDeadHandles();
+            display::manager::processEvents(0);
+
+            if (frameDrawn) {
+                if (display::manager::present(primaryConnector, cpuFramebuffer)) {
+                    framesRendered++;
+                }
+            } else {
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
+
+            auto now = std::chrono::high_resolution_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - lastLog);
+            if (elapsed.count() >= 5) {
+                LOG_VERBOSE() << "CPU renderer output " << framesRendered << " frames in " << elapsed.count() << " seconds" << std::endl;
+                framesRendered = 0;
+                lastLog = now;
+            }
+        }
+
+        LOG_VERBOSE() << "CPU renderer thread exiting" << std::endl;
+    });
+
+    renderingThread.detach();
+
+    std::string reason;
+    if (forcedFallback) {
+        reason = " (forced)";
+    } else if (headlessDevice) {
+        reason = " (headless detected)";
+    }
+
+    LOG_INFO() << "Renderer initialized using CPU path" << reason << std::endl;
+    rendererInitialized = true;
+    return true;
+}
+
 } // namespace
 
 void init() {
@@ -493,6 +740,8 @@ void init() {
         LOG_ERROR() << "Display device not initialized" << std::endl;
         return;
     }
+
+    auto device = display::manager::Device;
 
     auto availableDisplays = display::manager::getAvailableDisplays();
     if (availableDisplays.empty()) {
@@ -520,16 +769,38 @@ void init() {
         return;
     }
 
-    if (!gpuContext.initialize(*display::manager::Device, *currentMode)) {
-        LOG_ERROR() << "Failed to initialize GPU context" << std::endl;
+    bool headlessDevice = device && device->getDeviceFd() == -2;
+    bool forceCpu = shouldForceCpuBackend();
+
+    if (forceCpu) {
+        LOG_INFO() << "CPU rendering forced via GGDIRECT_FORCE_CPU." << std::endl;
+    }
+
+    if (forceCpu || headlessDevice) {
+        if (!startCpuRenderer(forceCpu, headlessDevice)) {
+            LOG_ERROR() << "Failed to initialize CPU renderer" << std::endl;
+        }
+        return;
+    }
+
+    activeBackend = RendererBackend::GPU;
+
+    if (!gpuContext.initialize(*device, *currentMode)) {
+        LOG_ERROR() << "Failed to initialize GPU context; attempting CPU fallback." << std::endl;
+        if (!startCpuRenderer(false, headlessDevice)) {
+            LOG_ERROR() << "CPU fallback renderer also failed to initialize." << std::endl;
+        }
         return;
     }
 
     updateProjectionMatrix(currentMode->getWidth(), currentMode->getHeight());
 
     if (!createShaderProgram()) {
-        LOG_ERROR() << "Failed to create shader program" << std::endl;
+        LOG_ERROR() << "Failed to create shader program; falling back to CPU renderer." << std::endl;
         gpuContext.cleanup(*display::manager::Device);
+        if (!startCpuRenderer(false, headlessDevice)) {
+            LOG_ERROR() << "CPU fallback renderer also failed to initialize." << std::endl;
+        }
         return;
     }
 
@@ -569,11 +840,11 @@ void init() {
                     return aRect.position.z < bRect.position.z;
                 });
 
-                renderWallpaper();
+                renderWallpaperGpu();
 
                 for (auto& handle : handles) {
                     activeHandles.insert(&handle);
-                    if (renderHandleInternal(&handle)) {
+                    if (renderHandleGpu(&handle)) {
                         frameDrawn = true;
                     }
                 }
@@ -623,15 +894,27 @@ void exit() {
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     releaseAllHandleResources();
-    destroyWallpaperTexture();
-    destroyQuadBuffer();
-    destroyShaderProgram();
+    
+    if (activeBackend == RendererBackend::GPU) {
+        destroyWallpaperTexture();
+        destroyQuadBuffer();
+        destroyShaderProgram();
 
-    if (display::manager::Device) {
-        gpuContext.cleanup(*display::manager::Device);
+        if (display::manager::Device) {
+            gpuContext.cleanup(*display::manager::Device);
+        }
+    } else {
+        if (cpuFramebuffer) {
+            cpuFramebuffer->unmap();
+            if (display::manager::Device) {
+                display::manager::Device->destroyFramebuffer(cpuFramebuffer);
+            }
+            cpuFramebuffer.reset();
+        }
     }
 
     rendererInitialized = false;
+    activeBackend = RendererBackend::GPU;
     LOG_VERBOSE() << "Renderer shutdown complete" << std::endl;
 }
 

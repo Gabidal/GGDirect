@@ -50,5 +50,5 @@ int main(int argc, char* argv[]) {
         // The signal handler will call exit(0) which triggers atexit cleanup
     }
 
-    return 0;
+    return 0; 
 }

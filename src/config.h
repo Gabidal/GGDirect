@@ -155,7 +155,6 @@ namespace config {
 
     struct InputSettings {
         bool enableGlobalKeybinds;
-        bool passUnhandledInput;        // Pass unhandled input to focused window
         int inputPollRate;              // Input polling rate in Hz
     };
 
@@ -273,10 +272,6 @@ namespace config {
         int stringToKeyCode(const std::string& keyName);
         std::string keyCodeToString(int keyCode);
         
-        // Modifier key utilities
-        std::string modifiersToString(bool ctrl, bool alt, bool shift, bool super);
-        void parseModifiers(const std::string& modStr, bool& ctrl, bool& alt, bool& shift, bool& super);
-        
         // Configuration file utilities
         bool fileExists(const std::string& path);
         bool createDirectory(const std::string& path);
@@ -284,10 +279,6 @@ namespace config {
         std::string getConfigDirectory();
         std::string getExecutableDirectory();
         std::string getCurrentWorkingDirectory();
-        
-        // JSON utilities
-        std::string escapeJsonString(const std::string& str);
-        std::string unescapeJsonString(const std::string& str);
     }
 }
 

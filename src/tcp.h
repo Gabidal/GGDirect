@@ -75,7 +75,7 @@ namespace packet {
 
         class base : public packet::base {
         public:
-            types::sVector2 mouse;      // Mouse position in the terminal   
+            types::cellCoordinates mouse;      // Mouse position in the terminal   
             controlKey modifiers;       // Control keys pressed
             additionalKey additional;   // Additional keys pressed, which are not declared in ASCII
             unsigned char key;          // ASCII key pressed, if any
@@ -87,9 +87,9 @@ namespace packet {
     namespace resize {
         class base : public packet::base {
         public:
-            types::sVector2 size;
+            types::cellCoordinates size;
 
-            base(types::sVector2 s) : packet::base(packet::type::RESIZE), size(s) {}
+            base(types::cellCoordinates s) : packet::base(packet::type::RESIZE), size(s) {}
         };
     }
 

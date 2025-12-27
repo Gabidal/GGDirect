@@ -722,7 +722,7 @@ namespace window {
             
             types::rectangle windowRectangle = positionToCellCoordinates(pos, newHandle.getDisplayId());
 
-            types::sVector2 dimensionsInCells = {
+            types::cellCoordinates dimensionsInCells = {
                 windowRectangle.size.x,
                 windowRectangle.size.y
             };

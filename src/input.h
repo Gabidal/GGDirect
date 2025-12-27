@@ -5,15 +5,10 @@
 #include "tcp.h"
 #include "guard.h"
 
-// Forward declaration for config system
-namespace config {
-    struct KeyCombination;
-    bool processKeyInput(const KeyCombination& key);
-}
-
 #include <string>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 #include <functional>
 #include <thread>
 #include <atomic>
@@ -28,12 +23,7 @@ namespace input {
         UNKNOWN,
         KEYBOARD,
         MOUSE,
-        TOUCHPAD,
-        TOUCHSCREEN,
-        GAMEPAD,
-        JOYSTICK,
-        STYLUS,
-        TABLET
+        TOUCHPAD
     };
 
     /**
@@ -49,9 +39,7 @@ namespace input {
         MOUSE_SCROLL,
         TOUCH_START,
         TOUCH_MOVE,
-        TOUCH_END,
-        GAMEPAD_BUTTON,
-        GAMEPAD_AXIS
+        TOUCH_END
     };
 
     /**
@@ -107,13 +95,7 @@ namespace input {
      */
     class KeyboardHandler : public IDeviceHandler {
     private:
-        packet::input::controlKey currentModifiers;
-        // Lightweight state for combo detection (arrows held while SUPER is down)
-        bool heldUp = false;
-        bool heldDown = false;
-        bool heldLeft = false;
-        bool heldRight = false;
-        
+        std::unordered_map<int, bool> keyStates;
     public:
         bool initialize(const DeviceInfo& deviceInfo) override;
         void cleanup() override;
@@ -247,13 +229,21 @@ namespace input {
     namespace utils {
         std::vector<std::string> scanInputDevices();
         bool isInputDevice(const std::string& devicePath);
+        bool isInputDevice(int fd);
         std::string getDeviceName(const std::string& devicePath);
+        std::string getDeviceName(int fd);
         DeviceType classifyDevice(const std::string& devicePath);
+        DeviceType classifyDevice(int fd);
         bool hasCapability(const std::string& devicePath, int capability);
+        bool hasCapability(int fd, int capability);
         std::vector<int> getSupportedKeys(const std::string& devicePath);
+        std::vector<int> getSupportedKeys(int fd);
         std::vector<int> getSupportedAxes(const std::string& devicePath);
+        std::vector<int> getSupportedAxes(int fd);
         types::iVector2 getDeviceResolution(const std::string& devicePath);
+        types::iVector2 getDeviceResolution(int fd);
         types::iVector2 getAxisRange(const std::string& devicePath, int axis);
+        types::iVector2 getAxisRange(int fd, int axis);
     }
 }
 

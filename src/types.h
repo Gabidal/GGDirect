@@ -62,14 +62,12 @@ namespace types {
     };
 
     // Used for cell coordinates, which are always positive and small enough to fit in a short.
-    class sVector2 {
+    class cellCoordinates : public iVector2 {
     public:
-        short x, y;
-
-        sVector2(short x_ = 0, short y_ = 0) : x(x_), y(y_) {}
+        cellCoordinates(int x_ = 0, int y_ = 0) : iVector2(x_, y_) {}
         
         // Conversion constructor from iVector2 (pixel coordinates to cell coordinates)
-        explicit sVector2(const iVector2& other) {
+        explicit cellCoordinates(const iVector2& other) {
             // Transform the pixel based coordinates to the cell based, getting cell dimensions from the font manager
             int cellWidth = font::manager::getDefaultCellWidth();
             int cellHeight = font::manager::getDefaultCellHeight();
@@ -78,11 +76,11 @@ namespace types {
             if (cellWidth <= 0) cellWidth = 8;   // Fallback to reasonable default
             if (cellHeight <= 0) cellHeight = 16; // Fallback to reasonable default
             
-            x = static_cast<short>(other.x / cellWidth);
-            y = static_cast<short>(other.y / cellHeight);
+            x = other.x / cellWidth;
+            y = other.y / cellHeight;
         }
 
-        sVector2& operator=(const iVector2& other) {
+        cellCoordinates& operator=(const iVector2& other) {
             // Transform the pixel based coordinates to the cell based, getting cell dimensions from the font manager
             int cellWidth = font::manager::getDefaultCellWidth();
             int cellHeight = font::manager::getDefaultCellHeight();
@@ -91,34 +89,34 @@ namespace types {
             if (cellWidth <= 0) cellWidth = 8;   // Fallback to reasonable default
             if (cellHeight <= 0) cellHeight = 16; // Fallback to reasonable default
             
-            x = static_cast<short>(other.x / cellWidth);
-            y = static_cast<short>(other.y / cellHeight);
+            x = other.x / cellWidth;
+            y = other.y / cellHeight;
             
             return *this;
         }
 
-        bool operator==(const sVector2& other) const {
+        bool operator==(const cellCoordinates& other) const {
             return x == other.x && y == other.y;
         }
 
-        bool operator!=(const sVector2& other) const {
+        bool operator!=(const cellCoordinates& other) const {
             return !(*this == other);
         }
 
-        sVector2 operator+(const sVector2& other) const {
-            return sVector2(x + other.x, y + other.y);
+        cellCoordinates operator+(const cellCoordinates& other) const {
+            return cellCoordinates(x + other.x, y + other.y);
         }
 
-        sVector2 operator-(const sVector2& other) const {
-            return sVector2(x - other.x, y - other.y);
+        cellCoordinates operator-(const cellCoordinates& other) const {
+            return cellCoordinates(x - other.x, y - other.y);
         }
 
-        sVector2 operator*(const sVector2& other) const {
-            return sVector2(x * other.x, y * other.y);
+        cellCoordinates operator*(const cellCoordinates& other) const {
+            return cellCoordinates(x * other.x, y * other.y);
         }
 
-        sVector2 operator/(const sVector2& other) const {
-            return sVector2(x / other.x, y / other.y);
+        cellCoordinates operator/(const cellCoordinates& other) const {
+            return cellCoordinates(x / other.x, y / other.y);
         }
     };
 

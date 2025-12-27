@@ -18,6 +18,31 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 
+namespace {
+    struct ScopedFd {
+        int fd{-1};
+        explicit ScopedFd(const std::string& path, int flags = O_RDONLY) {
+            fd = open(path.c_str(), flags);
+        }
+        ~ScopedFd() {
+            if (fd >= 0) close(fd);
+        }
+        ScopedFd(const ScopedFd&) = delete;
+        ScopedFd& operator=(const ScopedFd&) = delete;
+        ScopedFd(ScopedFd&& other) noexcept : fd(other.fd) { other.fd = -1; }
+        ScopedFd& operator=(ScopedFd&& other) noexcept {
+            if (this != &other) {
+                if (fd >= 0) close(fd);
+                fd = other.fd;
+                other.fd = -1;
+            }
+            return *this;
+        }
+        bool valid() const { return fd >= 0; }
+        int get() const { return fd; }
+    };
+}
+
 // Utility macros for bit manipulation
 #define BITS_PER_LONG (sizeof(long) * 8)
 #define BITS_TO_LONGS(nr) DIV_ROUND_UP(nr, BITS_PER_LONG)
@@ -34,15 +59,11 @@ namespace input {
     // ============================================================================
 
     bool KeyboardHandler::initialize(const DeviceInfo& deviceInfo) {
-        currentModifiers = packet::input::controlKey::UNKNOWN;
-        heldUp = heldDown = heldLeft = heldRight = false;
         LOG_INFO() << "Initialized keyboard handler for: " << deviceInfo.name << std::endl;
         return true;
     }
 
     void KeyboardHandler::cleanup() {
-        currentModifiers = packet::input::controlKey::UNKNOWN;
-        heldUp = heldDown = heldLeft = heldRight = false;
         LOG_INFO() << "Cleaned up keyboard handler." << std::endl;
     }
 
@@ -51,137 +72,67 @@ namespace input {
             return false;
         }
 
-        bool isPressed = (rawEvent.type == EventType::KEY_PRESS);
-        
-        // Update held arrow states early for combo logic
-        if (rawEvent.code == KEY_UP) heldUp = isPressed ? true : (heldUp && isPressed);
-        else if (rawEvent.code == KEY_DOWN) heldDown = isPressed ? true : (heldDown && isPressed);
-        else if (rawEvent.code == KEY_LEFT) heldLeft = isPressed ? true : (heldLeft && isPressed);
-        else if (rawEvent.code == KEY_RIGHT) heldRight = isPressed ? true : (heldRight && isPressed);
+        const bool isPressed = (rawEvent.type == EventType::KEY_PRESS) || (rawEvent.value == 2);
 
-        // Check for keybinds first (including combo inference) if this is a key press
-        if (isPressed) {
-            // If Super is held and we pressed an arrow, attempt combo synthesis
-            bool superHeld = (static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SUPER)) != 0;
-            if (superHeld && (rawEvent.code == KEY_UP || rawEvent.code == KEY_DOWN || rawEvent.code == KEY_LEFT || rawEvent.code == KEY_RIGHT)) {
-                // Determine primary directions currently down
-                bool up = heldUp || (rawEvent.code == KEY_UP);
-                bool down = heldDown || (rawEvent.code == KEY_DOWN);
-                bool left = heldLeft || (rawEvent.code == KEY_LEFT);
-                bool right = heldRight || (rawEvent.code == KEY_RIGHT);
+        // Always update the held-key state.
+        keyStates[rawEvent.code] = isPressed;
 
-                // Build a KeyCombination for single-arrow to see if user configured it (back-compat)
-                auto makeKC = [&](int keyCode) {
-                    config::KeyCombination kc; kc.keyCode = keyCode; kc.ctrl = false; kc.alt = false; kc.shift = false; kc.super = true; return kc; };
+        // Released keys do not contribute to keybinds or processed events.
+        if (!isPressed) {
+            processedEvent = packet::input::base();
+            return false;
+        }
 
-                // We infer combos by checking that the base single-arrow is configured.
-                // If both a vertical and a horizontal are active, synthesize diagonal movement.
-                if ((up || down) && (left || right)) {
-                    // Check that at least one base direction is mapped to MOVE
-                    bool baseOK = false;
-                    if (config::manager::isKeybindActive(makeKC(up ? KEY_UP : KEY_DOWN))) {
-                        auto act = config::manager::getAction(makeKC(up ? KEY_UP : KEY_DOWN));
-                        baseOK = config::ConfigurationManager::actionHas(act, config::ActionBits::MOVE);
-                    }
-                    if (!baseOK && config::manager::isKeybindActive(makeKC(left ? KEY_LEFT : KEY_RIGHT))) {
-                        auto act = config::manager::getAction(makeKC(left ? KEY_LEFT : KEY_RIGHT));
-                        baseOK = config::ConfigurationManager::actionHas(act, config::ActionBits::MOVE);
-                    }
-                    if (baseOK) {
-                        // Synthesize a combined movement action and execute directly, no packet for key event
-                        config::Action combo;
-                        combo.flags = config::ActionBits::MOVE;
-                        if (up) combo.flags |= config::ActionBits::DIR_UP; else combo.flags |= config::ActionBits::DIR_DOWN;
-                        if (left) combo.flags |= config::ActionBits::DIR_LEFT; else combo.flags |= config::ActionBits::DIR_RIGHT;
-                        combo.execute();
-                        LOG_VERBOSE() << "Synthesized diagonal move from combo Super+Arrows" << std::endl;
-                        return false; // handled
-                    }
-                }
+        auto isDown = [this](int keyCode) -> bool {
+            auto it = keyStates.find(keyCode);
+            return it != keyStates.end() && it->second;
+        };
 
-                // Otherwise, fall back to normal single-arrow handling below
+        const bool ctrlDown = isDown(KEY_LEFTCTRL) || isDown(KEY_RIGHTCTRL);
+        const bool altDown = isDown(KEY_LEFTALT) || isDown(KEY_RIGHTALT);
+        const bool shiftDown = isDown(KEY_LEFTSHIFT) || isDown(KEY_RIGHTSHIFT);
+        const bool superDown = isDown(KEY_LEFTMETA) || isDown(KEY_RIGHTMETA);
+
+        config::KeyCombination combo(rawEvent.code, ctrlDown, altDown, shiftDown, superDown);
+
+        // Check for global keybinds first; if consumed, suppress forwarding.
+        if (config::manager::processKeyInput(combo)) {
+            // Clear the keys responsible for the combo so they don't keep contributing.
+            keyStates[combo.keyCode] = false;
+            if (combo.ctrl) {
+                keyStates[KEY_LEFTCTRL] = false;
+                keyStates[KEY_RIGHTCTRL] = false;
+            }
+            if (combo.alt) {
+                keyStates[KEY_LEFTALT] = false;
+                keyStates[KEY_RIGHTALT] = false;
+            }
+            if (combo.shift) {
+                keyStates[KEY_LEFTSHIFT] = false;
+                keyStates[KEY_RIGHTSHIFT] = false;
+            }
+            if (combo.super) {
+                keyStates[KEY_LEFTMETA] = false;
+                keyStates[KEY_RIGHTMETA] = false;
             }
 
-            // Convert raw event to config KeyCombination and try direct lookup
-            config::KeyCombination keyCombination;
-            keyCombination.keyCode = rawEvent.code;
-            keyCombination.ctrl = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::CTRL);
-            keyCombination.alt = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::ALT);
-            keyCombination.shift = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SHIFT);
-            keyCombination.super = static_cast<int>(currentModifiers) & static_cast<int>(packet::input::controlKey::SUPER);
-
-            if (config::manager::processKeyInput(keyCombination)) {
-                LOG_VERBOSE() << "Keybind handled in keyboard handler: " << keyCombination.toString() << std::endl;
-                return false; // Don't process this event further
-            }
-        }
-        
-        // Handle modifier keys
-        switch (rawEvent.code) {
-            case KEY_LEFTSHIFT:
-            case KEY_RIGHTSHIFT:
-                if (isPressed) {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::SHIFT)
-                    );
-                } else {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::SHIFT)
-                    );
-                }
-                break;
-            case KEY_LEFTCTRL:
-            case KEY_RIGHTCTRL:
-                if (isPressed) {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::CTRL)
-                    );
-                } else {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::CTRL)
-                    );
-                }
-                break;
-            case KEY_LEFTALT:
-            case KEY_RIGHTALT:
-                if (isPressed) {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::ALT)
-                    );
-                } else {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::ALT)
-                    );
-                }
-                break;
-            case KEY_LEFTMETA:
-            case KEY_RIGHTMETA:
-                if (isPressed) {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::SUPER)
-                    );
-                } else {
-                    currentModifiers = static_cast<packet::input::controlKey>(
-                        static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::SUPER)
-                    );
-                }
-                break;
+            processedEvent = packet::input::base();
+            return false;
         }
 
-        // Set pressed state
-        if (isPressed) {
-            currentModifiers = static_cast<packet::input::controlKey>(
-                static_cast<int>(currentModifiers) | static_cast<int>(packet::input::controlKey::PRESSED_DOWN)
-            );
-        } else {
-            currentModifiers = static_cast<packet::input::controlKey>(
-                static_cast<int>(currentModifiers) & ~static_cast<int>(packet::input::controlKey::PRESSED_DOWN)
-            );
-        }
+        // Not a keybind: translate to a packet::input::base key event.
+        processedEvent = packet::input::base();
 
-        processedEvent.modifiers = currentModifiers;
-        
-        // Handle special keys
+        // Modifiers bitmask
+        int modifierBits = 0;
+        if (shiftDown) modifierBits |= static_cast<int>(packet::input::controlKey::SHIFT);
+        if (ctrlDown) modifierBits |= static_cast<int>(packet::input::controlKey::CTRL);
+        if (superDown) modifierBits |= static_cast<int>(packet::input::controlKey::SUPER);
+        if (altDown) modifierBits |= static_cast<int>(packet::input::controlKey::ALT);
+        modifierBits |= static_cast<int>(packet::input::controlKey::PRESSED_DOWN);
+        processedEvent.modifiers = static_cast<packet::input::controlKey>(modifierBits);
+
+        // Special keys that are not ASCII
         switch (rawEvent.code) {
             case KEY_F1: processedEvent.additional = packet::input::additionalKey::F1; break;
             case KEY_F2: processedEvent.additional = packet::input::additionalKey::F2; break;
@@ -206,27 +157,47 @@ namespace input {
             case KEY_INSERT: processedEvent.additional = packet::input::additionalKey::INSERT; break;
             case KEY_DELETE: processedEvent.additional = packet::input::additionalKey::DELETE; break;
             default:
-                // Handle ASCII keys
-                if (rawEvent.code >= KEY_A && rawEvent.code <= KEY_Z) {
-                    processedEvent.key = 'a' + (rawEvent.code - KEY_A);
-                } else if (rawEvent.code >= KEY_1 && rawEvent.code <= KEY_9) {
-                    processedEvent.key = '1' + (rawEvent.code - KEY_1);
-                } else if (rawEvent.code == KEY_0) {
-                    processedEvent.key = '0';
-                } else if (rawEvent.code == KEY_SPACE) {
-                    processedEvent.key = ' ';
-                } else if (rawEvent.code == KEY_ENTER) {
-                    processedEvent.key = '\n';
-                } else if (rawEvent.code == KEY_TAB) {
-                    processedEvent.key = '\t';
-                } else if (rawEvent.code == KEY_BACKSPACE) {
-                    processedEvent.key = '\b';
-                } else if (rawEvent.code == KEY_ESC) {
-                    processedEvent.key = 27; // ESC
-                } else {
-                    processedEvent.additional = packet::input::additionalKey::UNKNOWN;
-                }
                 break;
+        }
+
+        // ASCII mapping for common keys; shift is applied for letters and digits where sensible.
+        if (processedEvent.additional == packet::input::additionalKey::UNKNOWN) {
+            unsigned char ascii = 0;
+
+            // Letters
+            if (rawEvent.code >= KEY_A && rawEvent.code <= KEY_Z) {
+                const char base = shiftDown ? 'A' : 'a';
+                ascii = static_cast<unsigned char>(base + (rawEvent.code - KEY_A));
+            }
+            // Number row
+            else if (rawEvent.code >= KEY_1 && rawEvent.code <= KEY_9) {
+                static const char normal[] = {'1','2','3','4','5','6','7','8','9'};
+                static const char shifted[] = {'!','@','#','$','%','^','&','*','('};
+                const int idx = rawEvent.code - KEY_1;
+                ascii = static_cast<unsigned char>(shiftDown ? shifted[idx] : normal[idx]);
+            } else if (rawEvent.code == KEY_0) {
+                ascii = static_cast<unsigned char>(shiftDown ? ')' : '0');
+            }
+            // Whitespace / control
+            else if (rawEvent.code == KEY_SPACE) ascii = ' ';
+            else if (rawEvent.code == KEY_TAB) ascii = '\t';
+            else if (rawEvent.code == KEY_ENTER) ascii = '\n';
+            else if (rawEvent.code == KEY_BACKSPACE) ascii = '\b';
+            else if (rawEvent.code == KEY_ESC) ascii = 27;
+            // Punctuation (minimal set)
+            else if (rawEvent.code == KEY_MINUS) ascii = static_cast<unsigned char>(shiftDown ? '_' : '-');
+            else if (rawEvent.code == KEY_EQUAL) ascii = static_cast<unsigned char>(shiftDown ? '+' : '=');
+            else if (rawEvent.code == KEY_LEFTBRACE) ascii = static_cast<unsigned char>(shiftDown ? '{' : '[');
+            else if (rawEvent.code == KEY_RIGHTBRACE) ascii = static_cast<unsigned char>(shiftDown ? '}' : ']');
+            else if (rawEvent.code == KEY_SEMICOLON) ascii = static_cast<unsigned char>(shiftDown ? ':' : ';');
+            else if (rawEvent.code == KEY_APOSTROPHE) ascii = static_cast<unsigned char>(shiftDown ? '"' : '\'');
+            else if (rawEvent.code == KEY_GRAVE) ascii = static_cast<unsigned char>(shiftDown ? '~' : '`');
+            else if (rawEvent.code == KEY_BACKSLASH) ascii = static_cast<unsigned char>(shiftDown ? '|' : '\\');
+            else if (rawEvent.code == KEY_COMMA) ascii = static_cast<unsigned char>(shiftDown ? '<' : ',');
+            else if (rawEvent.code == KEY_DOT) ascii = static_cast<unsigned char>(shiftDown ? '>' : '.');
+            else if (rawEvent.code == KEY_SLASH) ascii = static_cast<unsigned char>(shiftDown ? '?' : '/');
+
+            processedEvent.key = ascii;
         }
 
         return true;
@@ -471,13 +442,20 @@ namespace input {
     std::unique_ptr<DeviceInfo> DeviceManager::queryDeviceInfo(const std::string& devicePath) const {
         auto deviceInfo = std::make_unique<DeviceInfo>();
         deviceInfo->path = devicePath;
-        deviceInfo->name = utils::getDeviceName(devicePath);
-        deviceInfo->type = utils::classifyDevice(devicePath);
-        deviceInfo->supportedKeys = utils::getSupportedKeys(devicePath);
-        deviceInfo->supportedAxes = utils::getSupportedAxes(devicePath);
-        deviceInfo->resolution = utils::getDeviceResolution(devicePath);
-        deviceInfo->minValues = utils::getAxisRange(devicePath, ABS_X);
-        deviceInfo->maxValues = utils::getAxisRange(devicePath, ABS_Y);
+
+        ScopedFd fd(devicePath);
+        if (fd.valid()) {
+            deviceInfo->name = utils::getDeviceName(fd.get());
+            deviceInfo->type = utils::classifyDevice(fd.get());
+            deviceInfo->supportedKeys = utils::getSupportedKeys(fd.get());
+            deviceInfo->supportedAxes = utils::getSupportedAxes(fd.get());
+            deviceInfo->resolution = utils::getDeviceResolution(fd.get());
+            deviceInfo->minValues = utils::getAxisRange(fd.get(), ABS_X);
+            deviceInfo->maxValues = utils::getAxisRange(fd.get(), ABS_Y);
+        } else {
+            deviceInfo->name = "Unknown Device";
+            deviceInfo->type = DeviceType::UNKNOWN;
+        }
         
         return deviceInfo;
     }
@@ -608,7 +586,12 @@ namespace input {
                         // Convert Linux input event type to our event type
                         switch (ev.type) {
                             case EV_KEY:
-                                rawEvent.type = (ev.value == 1) ? EventType::KEY_PRESS : EventType::KEY_RELEASE;
+                                // ev.value: 0=release, 1=press, 2=repeat
+                                if (ev.value == 0) {
+                                    rawEvent.type = EventType::KEY_RELEASE;
+                                } else {
+                                    rawEvent.type = EventType::KEY_PRESS;
+                                }
                                 break;
                             case EV_REL:
                                 rawEvent.type = EventType::MOUSE_MOVE;
@@ -816,122 +799,103 @@ namespace input {
         }
 
         bool isInputDevice(const std::string& devicePath) {
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return false;
-            }
-            
-            // Check if it's a valid input device
-            unsigned long evbits[BITS_TO_LONGS(EV_CNT)];
-            if (ioctl(fd, EVIOCGBIT(0, EV_CNT), evbits) < 0) {
-                close(fd);
-                return false;
-            }
-            
-            close(fd);
-            return true;
+            ScopedFd fd(devicePath);
+            return fd.valid() && isInputDevice(fd.get());
+        }
+
+        bool isInputDevice(int fd) {
+            if (fd < 0) return false;
+
+            unsigned long evbits[BITS_TO_LONGS(EV_CNT)]{};
+            return ioctl(fd, EVIOCGBIT(0, EV_CNT), evbits) >= 0;
         }
 
         std::string getDeviceName(const std::string& devicePath) {
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return "Unknown Device";
-            }
-            
-            char name[256];
+            ScopedFd fd(devicePath);
+            return fd.valid() ? getDeviceName(fd.get()) : "Unknown Device";
+        }
+
+        std::string getDeviceName(int fd) {
+            if (fd < 0) return "Unknown Device";
+
+            char name[256] = {0};
             if (ioctl(fd, EVIOCGNAME(sizeof(name)), name) < 0) {
-                close(fd);
                 return "Unknown Device";
             }
-            
-            close(fd);
+
             return std::string(name);
         }
 
         DeviceType classifyDevice(const std::string& devicePath) {
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return DeviceType::UNKNOWN;
-            }
-            
-            unsigned long evbits[BITS_TO_LONGS(EV_CNT)];
-            unsigned long keybits[BITS_TO_LONGS(KEY_CNT)];
-            unsigned long relbits[BITS_TO_LONGS(REL_CNT)];
-            unsigned long absbits[BITS_TO_LONGS(ABS_CNT)];
-            
+            ScopedFd fd(devicePath);
+            return fd.valid() ? classifyDevice(fd.get()) : DeviceType::UNKNOWN;
+        }
+
+        DeviceType classifyDevice(int fd) {
+            if (fd < 0) return DeviceType::UNKNOWN;
+
+            unsigned long evbits[BITS_TO_LONGS(EV_CNT)]{};
+            unsigned long keybits[BITS_TO_LONGS(KEY_CNT)]{};
+            unsigned long relbits[BITS_TO_LONGS(REL_CNT)]{};
+
             if (ioctl(fd, EVIOCGBIT(0, EV_CNT), evbits) < 0) {
-                close(fd);
                 return DeviceType::UNKNOWN;
             }
-            
-            bool hasKeys = test_bit(EV_KEY, evbits);
-            bool hasRel = test_bit(EV_REL, evbits);
-            bool hasAbs = test_bit(EV_ABS, evbits);
-            
+
+            const bool hasKeys = test_bit(EV_KEY, evbits);
+            const bool hasRel = test_bit(EV_REL, evbits);
+            const bool hasAbs = test_bit(EV_ABS, evbits);
+
             DeviceType deviceType = DeviceType::UNKNOWN;
-            
+
             if (hasKeys) {
                 ioctl(fd, EVIOCGBIT(EV_KEY, KEY_CNT), keybits);
-                
-                // Check for keyboard keys
+
                 if (test_bit(KEY_A, keybits) && test_bit(KEY_Z, keybits)) {
                     deviceType = DeviceType::KEYBOARD;
-                }
-                // Check for mouse buttons
-                else if (test_bit(BTN_LEFT, keybits) && test_bit(BTN_RIGHT, keybits)) {
+                } else if (test_bit(BTN_LEFT, keybits) && test_bit(BTN_RIGHT, keybits)) {
                     deviceType = DeviceType::MOUSE;
-                }
-                // Check for touchpad
-                else if (test_bit(BTN_TOUCH, keybits) && hasAbs) {
+                } else if (test_bit(BTN_TOUCH, keybits) && hasAbs) {
                     deviceType = DeviceType::TOUCHPAD;
                 }
             }
-            
-            // If still unknown, check for relative movement (mouse)
+
             if (deviceType == DeviceType::UNKNOWN && hasRel) {
                 ioctl(fd, EVIOCGBIT(EV_REL, REL_CNT), relbits);
                 if (test_bit(REL_X, relbits) && test_bit(REL_Y, relbits)) {
                     deviceType = DeviceType::MOUSE;
                 }
             }
-            
-            // Check for absolute positioning (touchscreen/tablet)
-            if (deviceType == DeviceType::UNKNOWN && hasAbs) {
-                ioctl(fd, EVIOCGBIT(EV_ABS, ABS_CNT), absbits);
-                if (test_bit(ABS_X, absbits) && test_bit(ABS_Y, absbits)) {
-                    deviceType = DeviceType::TOUCHSCREEN;
-                }
-            }
-            
-            close(fd);
+
             return deviceType;
         }
 
         bool hasCapability(const std::string& devicePath, int capability) {
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return false;
-            }
-            
-            unsigned long evbits[BITS_TO_LONGS(EV_CNT)];
+            ScopedFd fd(devicePath);
+            return fd.valid() && hasCapability(fd.get(), capability);
+        }
+
+        bool hasCapability(int fd, int capability) {
+            if (fd < 0) return false;
+
+            unsigned long evbits[BITS_TO_LONGS(EV_CNT)]{};
             if (ioctl(fd, EVIOCGBIT(0, EV_CNT), evbits) < 0) {
-                close(fd);
                 return false;
             }
-            
-            bool result = test_bit(capability, evbits);
-            close(fd);
-            return result;
+
+            return test_bit(capability, evbits);
         }
 
         std::vector<int> getSupportedKeys(const std::string& devicePath) {
+            ScopedFd fd(devicePath);
+            return fd.valid() ? getSupportedKeys(fd.get()) : std::vector<int>{};
+        }
+
+        std::vector<int> getSupportedKeys(int fd) {
             std::vector<int> keys;
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return keys;
-            }
-            
-            unsigned long keybits[BITS_TO_LONGS(KEY_CNT)];
+            if (fd < 0) return keys;
+
+            unsigned long keybits[BITS_TO_LONGS(KEY_CNT)]{};
             if (ioctl(fd, EVIOCGBIT(EV_KEY, KEY_CNT), keybits) >= 0) {
                 for (int i = 0; i < KEY_CNT; i++) {
                     if (test_bit(i, keybits)) {
@@ -939,19 +903,20 @@ namespace input {
                     }
                 }
             }
-            
-            close(fd);
+
             return keys;
         }
 
         std::vector<int> getSupportedAxes(const std::string& devicePath) {
+            ScopedFd fd(devicePath);
+            return fd.valid() ? getSupportedAxes(fd.get()) : std::vector<int>{};
+        }
+
+        std::vector<int> getSupportedAxes(int fd) {
             std::vector<int> axes;
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return axes;
-            }
-            
-            unsigned long absbits[BITS_TO_LONGS(ABS_CNT)];
+            if (fd < 0) return axes;
+
+            unsigned long absbits[BITS_TO_LONGS(ABS_CNT)]{};
             if (ioctl(fd, EVIOCGBIT(EV_ABS, ABS_CNT), absbits) >= 0) {
                 for (int i = 0; i < ABS_CNT; i++) {
                     if (test_bit(i, absbits)) {
@@ -959,46 +924,47 @@ namespace input {
                     }
                 }
             }
-            
-            close(fd);
+
             return axes;
         }
 
         types::iVector2 getDeviceResolution(const std::string& devicePath) {
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return types::iVector2(0, 0);
-            }
-            
+            ScopedFd fd(devicePath);
+            return fd.valid() ? getDeviceResolution(fd.get()) : types::iVector2(0, 0);
+        }
+
+        types::iVector2 getDeviceResolution(int fd) {
+            if (fd < 0) return types::iVector2(0, 0);
+
             struct input_absinfo absinfo;
             types::iVector2 resolution(0, 0);
-            
+
             if (ioctl(fd, EVIOCGABS(ABS_X), &absinfo) >= 0) {
                 resolution.x = absinfo.resolution;
             }
             if (ioctl(fd, EVIOCGABS(ABS_Y), &absinfo) >= 0) {
                 resolution.y = absinfo.resolution;
             }
-            
-            close(fd);
+
             return resolution;
         }
 
         types::iVector2 getAxisRange(const std::string& devicePath, int axis) {
-            int fd = open(devicePath.c_str(), O_RDONLY);
-            if (fd < 0) {
-                return types::iVector2(0, 0);
-            }
-            
+            ScopedFd fd(devicePath);
+            return fd.valid() ? getAxisRange(fd.get(), axis) : types::iVector2(0, 0);
+        }
+
+        types::iVector2 getAxisRange(int fd, int axis) {
+            if (fd < 0) return types::iVector2(0, 0);
+
             struct input_absinfo absinfo;
             types::iVector2 range(0, 0);
-            
+
             if (ioctl(fd, EVIOCGABS(axis), &absinfo) >= 0) {
                 range.x = absinfo.minimum;
                 range.y = absinfo.maximum;
             }
-            
-            close(fd);
+
             return range;
         }
     }

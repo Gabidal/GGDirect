@@ -1,7 +1,6 @@
 #include "config.h"
 #include "logger.h"
 #include "window.h"
-#include "input.h"
 
 #include <fstream>
 #include <sstream>
@@ -243,7 +242,7 @@ namespace config {
                 current->preset = window::position::FULLSCREEN;
                 LOG_INFO() << "Moved window to fullscreen: " << current->name << std::endl;
                 types::rectangle newrect = window::positionToPixelCoordinates(window::position::FULLSCREEN, current->displayId);
-                new(packetBuffer) packet::resize::base(types::sVector2(newrect.size));
+                new(packetBuffer) packet::resize::base(types::cellCoordinates(newrect.size));
                 current->set(window::stain::type::resize, true);
             }
         } else if (hasFlag(flags, ActionBits::MOVE)) {
@@ -270,7 +269,7 @@ namespace config {
                 current->preset = target;
                 LOG_INFO() << "Moved window: " << current->name << std::endl;
                 types::rectangle newrect = window::positionToPixelCoordinates(target, current->displayId);
-                new(packetBuffer) packet::resize::base(types::sVector2(newrect.size));
+                new(packetBuffer) packet::resize::base(types::cellCoordinates(newrect.size));
                 current->set(window::stain::type::resize, true);
             }
         } else if (hasFlag(flags, ActionBits::CUSTOM)) {
@@ -420,7 +419,6 @@ namespace config {
         autoDistributeWindows = true;
         displayAssignmentStrategy = "FILL_THEN_NEXT";
         primaryDisplayId = 0;
-        backgroundColor = "#000000";      // Default black background
         wallpaperPath = "";               // No wallpaper by default
         backgroundColorRGB = 0x00000000;  // Black in XRGB8888 format
     }
@@ -546,7 +544,6 @@ namespace config {
         display.loadDefaults();
         
         input.enableGlobalKeybinds = true;
-        input.passUnhandledInput = true;
         input.inputPollRate = 60;
         
         configVersion = "1.0";
@@ -684,9 +681,8 @@ namespace config {
                     std::string key = line.substr(keyStart + 1, keyEnd - keyStart - 1);
                     
                     if (key == "backgroundColor" && valueStart != std::string::npos && valueEnd != std::string::npos) {
-                        config.display.backgroundColor = line.substr(valueStart + 1, valueEnd - valueStart - 1);
                         // Convert hex string to RGB value
-                        config.display.backgroundColorRGB = parseHexColor(config.display.backgroundColor);
+                        config.display.backgroundColorRGB = parseHexColor(line.substr(valueStart + 1, valueEnd - valueStart - 1));
                     } else if (key == "wallpaperPath" && valueStart != std::string::npos && valueEnd != std::string::npos) {
                         config.display.wallpaperPath = line.substr(valueStart + 1, valueEnd - valueStart - 1);
                     } else if (key == "autoDistributeWindows") {
@@ -765,7 +761,6 @@ namespace config {
         file << "  },\n";
         file << "  \"input\": {\n";
         file << "    \"enableGlobalKeybinds\": " << (config.input.enableGlobalKeybinds ? "true" : "false") << ",\n";
-        file << "    \"passUnhandledInput\": " << (config.input.passUnhandledInput ? "true" : "false") << ",\n";
         file << "    \"inputPollRate\": " << config.input.inputPollRate << "\n";
         file << "  }\n";
         file << "}\n";
@@ -824,7 +819,6 @@ namespace config {
         file << "  },\n";
         file << "  \"input\": {\n";
         file << "    \"enableGlobalKeybinds\": " << (defaultConfig.input.enableGlobalKeybinds ? "true" : "false") << ",\n";
-        file << "    \"passUnhandledInput\": " << (defaultConfig.input.passUnhandledInput ? "true" : "false") << ",\n";
         file << "    \"inputPollRate\": " << defaultConfig.input.inputPollRate << "\n";
         file << "  }\n";
         file << "}\n";
